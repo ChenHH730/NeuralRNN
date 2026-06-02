@@ -49,4 +49,9 @@ def compute_vector_field(model: NeuralDynamicsModel, basis: np.ndarray, mean: np
     dz = F - Z                                                     # (G,M)
     vel_pc = (dz @ B.T).cpu().numpy()                              # (G,2) 投影回平面
     speed = dz.norm(dim=-1).cpu().numpy()
-    return VectorField(grid_pc=coords, velocity_pc=vel_pc, speed=speed)
+
+    # Reshape to (n_grid, n_grid, ...) for convenient 2D indexing in plotting
+    grid_2d = coords.reshape(n_grid, n_grid, 2)
+    vel_2d = vel_pc.reshape(n_grid, n_grid, 2)
+    speed_2d = speed.reshape(n_grid, n_grid)
+    return VectorField(grid_pc=grid_2d, velocity_pc=vel_2d, speed=speed_2d)

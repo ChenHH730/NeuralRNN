@@ -10,14 +10,15 @@
 | [01_plrnn_reconstruction_paradigmB.ipynb](01_plrnn_reconstruction_paradigmB.ipynb) | B 重构 | CNS2023 / shallowPLRNN | `TeacherForcingObjective` · `find_fixed_points`(解析) · `max_lyapunov_exponent` · D_stsp/D_H |
 | [02_ctrnn_fixedpoints_paradigmA.ipynb](02_ctrnn_fixedpoints_paradigmA.ipynb) | A 任务 | nn-brain / CTRNN | `SupervisedObjective` · `find_fixed_points`(数值) · `fit_pca` · `linearize` · `dominant_direction` · 线吸引子 · ParametricWorkingMemory |
 | [03_custom_dataset_paradigmA.ipynb](03_custom_dataset_paradigmA.ipynb) | A 任务 | 自定义数据导入 | `CustomDataset.from_arrays` · `SupervisedObjective`("regression") · 训练+评估 |
+| [04_EIRNN_paradigmA.ipynb](04_EIRNN_paradigmA.ipynb) | A 任务 | Song et al. (2016) / E-I RNN | `ei_rnn` · Dale约束 · 选择性分析 · 连接可视化 · PCA · 不动点分析 |
+| [05_latent_circuit_paradigmA.ipynb](05_latent_circuit_paradigmA.ipynb) | A 任务 | Langdon & Engel (2025) / Latent Circuit | `latent_circuit` · `LatentCircuitObjective` · 连接分析 · 扰动分析 · PCA · 不动点分析 |
+| [06_tiny_RNN_paradigmB.ipynb](06_tiny_RNN_paradigmB.ipynb) | B 行为 | Ji-An et al. (2025) / Tiny RNN | `tiny_rnn` · `BehavioralObjective` · 行为拟合 · 相位图 · 向量场 · 认知模型重建 |
 
 ## 待补（随移植推进添加，配方见 PORTING_GUIDE）
 
 - 低秩 RNN：DMS 任务的低秩结构与动力学（配方3）
-- Latent Circuit：把高维 RNN 投影到低维可解释回路（配方4）
 - LFADS：用 `VariationalObjective` 做尖峰序列的潜动力推断（配方5）
 - MARBLE：对轨迹/向量场做无监督流形几何比较（配方6，`analysis/manifold`）
-- Tiny RNN：行为拟合 + 嵌套交叉验证选模型（配方7，`train/cv`）
 - neuralflow：连续时间潜流场分析（配方8，`analysis/manifold`）
 
 ## 运行前提

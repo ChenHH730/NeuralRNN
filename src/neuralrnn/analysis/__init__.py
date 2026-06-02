@@ -26,6 +26,16 @@ from .stsp_metrics import (
     hellinger_distance,
 )
 from .manifold import trajectories_to_pos_vel
+from .connectivity import analyze_connectivity, ConnectivityResult
+from .perturbation import (
+    analyze_perturbation,
+    latent_to_rnn_perturbation,
+    apply_perturbation,
+    compute_choice,
+    PerturbationSpec,
+    PerturbationResult,
+)
+from .psychometric import compute_psychometric, PsychometricCurve, PsychometricResult
 
 __all__ = [
     "find_fixed_points",
@@ -49,4 +59,15 @@ __all__ = [
     "power_spectrum_error",
     "hellinger_distance",
     "trajectories_to_pos_vel",
+    "analyze_connectivity",
+    "ConnectivityResult",
+    "analyze_perturbation",
+    "latent_to_rnn_perturbation",
+    "apply_perturbation",
+    "compute_choice",
+    "PerturbationSpec",
+    "PerturbationResult",
+    "compute_psychometric",
+    "PsychometricCurve",
+    "PsychometricResult",
 ]

@@ -5,7 +5,8 @@ __pycache__/
 
 docs/ARCHITECTURE.md
 docs/PORTING_GUIDE.md
-
+notebook/figs/
+notebook/models/
 # C extensions
 *.so
 

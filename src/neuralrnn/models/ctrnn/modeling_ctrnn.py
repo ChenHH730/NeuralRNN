@@ -64,7 +64,13 @@ class CTRNNModel(NeuralDynamicsModel):
         W = self._recurrent_weight()
         pre = self.input2h(x_t) + torch.nn.functional.linear(z_prev, W, self.h2h.bias)
         if self.config.sigma_rec > 0 and self.training:
-            pre = pre + self.config.sigma_rec * torch.randn_like(pre)
+            if self.config.noise_alpha_scaling:
+                # Reference formula: sqrt(2 * alpha * sigma^2) * N(0,1)
+                noise_std = (2 * self.alpha * self.config.sigma_rec ** 2) ** 0.5
+            else:
+                # Default: sigma * N(0,1)
+                noise_std = self.config.sigma_rec
+            pre = pre + noise_std * torch.randn_like(pre)
         if self.config.relu_after_blend:
             # nn-brain 原始公式: f((1-α)z + α·pre)
             z = self.act((1 - self.alpha) * z_prev + self.alpha * pre)
@@ -84,4 +90,53 @@ class VanillaRNNModel(CTRNNModel):
 
 @register_model("ei_rnn")
 class EIRNNModel(CTRNNModel):
+    """Excitatory-Inhibitory RNN with Dale's principle.
+
+    Key differences from vanilla CTRNN:
+    - Dale's constraint: E units have non-negative outgoing weights, I units non-positive.
+    - Readout restricted to excitatory units only (long-range projections are excitatory).
+    - Proper EI initialization with E/I balance (E weights scaled by I/E ratio).
+
+    Reference:
+        Song, H.F., Yang, G.R. and Wang, X.J., 2016.
+        Training excitatory-inhibitory recurrent neural networks
+        for cognitive tasks: a simple and flexible framework.
+        PLoS computational biology, 12(2).
+    """
     config_class = EIRNNConfig
+
+    def __init__(self, config: EIRNNConfig) -> None:
+        super().__init__(config)
+        self.e_size = int(round(config.latent_dim * config.ei_ratio))
+        self.i_size = config.latent_dim - self.e_size
+
+        # Override readout to only use excitatory units if configured
+        if config.readout_e_only:
+            self.readout_layer = nn.Linear(self.e_size, config.output_dim)
+
+        # Apply EI-specific initialization
+        self._ei_init_weights()
+
+    def _ei_init_weights(self) -> None:
+        """Initialize weights with EI balance (E weights scaled by I/E ratio).
+
+        This matches the reference implementation where E columns of the recurrent
+        weight matrix are scaled by (e_size / i_size) to balance excitatory and
+        inhibitory inputs to each unit.
+        """
+        e_size = self.e_size
+        i_size = self.i_size
+        if i_size == 0:
+            return
+
+        with torch.no_grad():
+            # Scale E columns of recurrent weight by E-I ratio
+            # This balances E and I contributions: each E unit's weight is scaled down
+            # because there are more E units than I units
+            self.h2h.weight[:, :e_size] /= (e_size / i_size)
+
+    def readout(self, z_t: torch.Tensor) -> torch.Tensor:
+        """Readout from excitatory units only (long-range projections are excitatory)."""
+        if self.config.readout_e_only:
+            return self.readout_layer(z_t[:, :self.e_size])
+        return self.readout_layer(z_t)

@@ -14,7 +14,7 @@
 | Latent Circuit | A | `models/latent_circuit` | _待写_ | ⬜ 待移植 |
 | LFADS | B | `models/lfads` + `VariationalObjective` | _待写_ | ⬜ 待移植 |
 | MARBLE（流形几何） | 分析 | `analysis/manifold` | _待写_ | ⬜ 待移植 |
-| Tiny RNN（行为拟合） | 行为 | `models/tiny_rnn` + CV | _待写_ | ⬜ 待移植 |
+| Tiny RNN（行为拟合） | 行为 | `models/tiny_rnn` + CV | [tiny_rnn.md](tiny_rnn.md) | ✅ Ready |
 | neuralflow（连续时间潜流场） | 分析 | `analysis/manifold` | _待写_ | ⬜ 待移植 |
 
 新增论文时：复制 [_TEMPLATE.md](_TEMPLATE.md) → 重命名 → 填写，并在上表加一行。

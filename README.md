@@ -77,12 +77,18 @@ notebook/                  # 逐篇论文的端到端教程
 
 ## 内置 vs 待移植
 
-| 模型 | 范式 | 状态 |
+| 模型 | 范式 | 实现状态 |
 |---|---|---|
-| CTRNN / Vanilla / E-I RNN | A | ✅ 参考实现 |
-| shallow / dend / AL-PLRNN | B | ✅ shallow 参考实现（dend/AL） |
-| 低秩 RNN · Latent Circuit · LFADS · Tiny RNN | A/B/行为 | ⬜ 待移植 |
-| MARBLE · neuralflow（分析方法，非模型） | 分析 | ⬜ 待移植（→ `analysis/`） |
+| CTRNN / Vanilla | A | ✅  |
+| E-I RNN (Dale's principle) | A | ✅ |
+| Latent Circuit | A | ✅ |
+| shallow / dend / AL-PLRNN | B | ✅  |
+| Tiny RNN | B | ✅ |
+| 低秩 RNN  | A | ⬜  |
+| MARBLE · neuralflow（分析方法，非模型） | B | ⬜  |
+|FINDR | B | ⬜ |
+|SSMLearnPy| B | ⬜ |
+| LFADS | B | ⬜ |
 
 ## 把新论文纳入框架
 

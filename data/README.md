@@ -6,9 +6,13 @@
 - 数据集的 URL / 文件名 / 解压方式登记在 `src/neuralrnn/data/registry.py` 的 `DATASET_REGISTRY`。
 - **无网环境**：把对应文件手动放到缓存目录即可命中，`download.py` 会给出期望路径提示。
 
+## 注册数据
+
+`DATASET_REGISTRY`中包含 （1）基于neurogym的任务[^1]；（2）一些定义好的任务类[^2]，以及其他开源数据集（如 lorenz63）
+
 ## 自定义数据导入
 
-除了内置的 neurogym 任务数据和开源数据集（如 lorenz63），本框架支持导入用户自生成的数据集。
+除了内置数据，本框架支持导入用户自生成的数据集。
 使用 `CustomDataset` 可以将 numpy 数组、torch 张量、.npz 文件或 .mat 文件导入框架：
 
 ```python
@@ -31,3 +35,6 @@ ds = CustomDataset.from_mat("neural_data.mat", variable_map={"inputs": "stim", "
 详见 [api/reference.md](api/reference.md) 中 `CustomDataset` 的完整文档。
 
 > 大文件不建议提交进版本库；本目录默认只跟踪本说明。
+
+[^1]: https://neurogym.github.io/neurogym/latest/
+[^2]: https://github.com/engellab/latentcircuit

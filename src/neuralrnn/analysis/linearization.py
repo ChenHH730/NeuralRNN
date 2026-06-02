@@ -25,9 +25,12 @@ class LinearizationResult:
 
 def linearize(model: NeuralDynamicsModel, z, *, task_input: torch.Tensor | None = None
               ) -> LinearizationResult:
-    """在状态 z 处线性化。z: (M,) tensor/ndarray。"""
+    """在状态 z 处线性化。z: (M,) tensor/ndarray or (1, M) (auto-squeezed)."""
     device = next(model.parameters()).device
     z = torch.as_tensor(np.asarray(z), dtype=torch.float32, device=device)
+    # Ensure z is 1-D (M,) — handle (1, M) from e.g. fp.z.unsqueeze(0)
+    if z.dim() > 1:
+        z = z.squeeze(0)
     xin = None if task_input is None else task_input.to(device).unsqueeze(0)
     J = model.jacobian(z, inputs=xin).detach().cpu().numpy()
     eigval, eigvec = np.linalg.eig(J)

@@ -52,6 +52,43 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
         filename="dms_rank2_500.pt",
         # loader="neuralrnn.models.lowrank.modeling_lowrank:load_network",
     ),
+    # Langdon & Engel (2025)：认知任务（程序化生成，无需下载）
+    "siegel_miller": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "siegel_miller"},
+    ),
+    "mante": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "mante"},
+    ),
+    "mante_short": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "mante_short"},
+    ),
+    "two_afc": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "two_afc"},
+    ),
+    "delay_match_to_sample": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "delay_match_to_sample"},
+    ),
+    "parametric_wm": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "parametric_wm"},
+    ),
+    # Tiny RNN：Bartolo Monkey 概率反转学习任务行为数据
+    "bartolo_monkey": DatasetSpec(
+        kind="behavioral",
+        loader="neuralrnn.data.bartolo_monkey_dataset:BartoloMonkeyDataset.load",
+        extra={"animal_name": "V"},
+    ),
     # 移植新论文时在此追加……
 }
 
@@ -77,6 +114,16 @@ def load_dataset(name: str, **overrides):
     if spec.kind == "neurogym":
         loader = _resolve(spec.loader)
         return loader(task=spec.task, **overrides)
+
+    if spec.kind == "cognitive_task":
+        loader = _resolve(spec.loader)
+        task_name = spec.extra.get("task_name", name)
+        return loader(task_name=task_name, **overrides)
+
+    if spec.kind == "behavioral":
+        loader = _resolve(spec.loader)
+        extra = {**spec.extra, **overrides}
+        return loader(**extra)
 
     # 需要下载的本地文件型数据集
     from .download import ensure_files  # 按需实现：返回 {逻辑名: 本地路径}

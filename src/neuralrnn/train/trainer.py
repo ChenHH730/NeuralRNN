@@ -50,12 +50,14 @@ def _build_scheduler(optimizer, args: TrainingArguments):
 class Trainer:
     def __init__(self, model: NeuralDynamicsModel, dataset, objective: Objective,
                  args: TrainingArguments | None = None,
-                 eval_fn: Callable[[NeuralDynamicsModel], dict] | None = None):
+                 eval_fn: Callable[[NeuralDynamicsModel], dict] | None = None,
+                 post_step_hook: Callable[[NeuralDynamicsModel], None] | None = None):
         self.model = model
         self.dataset = dataset
         self.objective = objective
         self.args = args or TrainingArguments()
         self.eval_fn = eval_fn               # 可选：返回评估指标 dict（如 D_stsp/D_H）
+        self.post_step_hook = post_step_hook  # 可选：每步梯度更新后调用（如约束投影）
         self.history: list[dict] = []
 
         torch.manual_seed(self.args.seed)
@@ -88,6 +90,8 @@ class Trainer:
             if self.args.grad_clip_norm is not None:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.args.grad_clip_norm)
             self.optimizer.step()
+            if self.post_step_hook is not None:
+                self.post_step_hook(self.model)
             if self.scheduler is not None:
                 self.scheduler.step()
 

@@ -342,8 +342,19 @@ class VanillaRNNConfig(CTRNNConfig):
 ```python
 class EIRNNConfig(CTRNNConfig):
     model_type = "ei_rnn"
-    # Defaults: dale=True, all other params inherited
+
+    def __init__(
+        self,
+        readout_e_only: bool = True,  # Readout from excitatory units only
+        init_method: str = "kaiming", # Weight initialization method
+        # All CTRNNConfig params inherited, with defaults:
+        # dale=True, ei_ratio=0.8
+        **kwargs,
+    ) -> None: ...
 ```
+
+- `readout_e_only`: When `True`, readout layer takes only excitatory units (first `e_size` units) as input. This matches the biological constraint that long-range projections are exclusively excitatory.
+- `init_method`: Weight initialization method. `"kaiming"` uses Kaiming uniform with E/I balance scaling.
 
 #### `CTRNNModel`
 
@@ -359,9 +370,30 @@ class CTRNNModel(NeuralDynamicsModel):
     def init_state(self, batch_size, device) -> Tensor: ...  # Uses trainable h0 if configured
 ```
 
-`VanillaRNNModel` and `EIRNNModel` are aliases that inherit from `CTRNNModel` with their respective configs.
+`VanillaRNNModel` is an alias that inherits from `CTRNNModel` with `VanillaRNNConfig`.
+
+#### `EIRNNModel`
+
+```python
+@register_model("ei_rnn")
+class EIRNNModel(CTRNNModel):
+    config_class = EIRNNConfig
+
+    # Additional attributes:
+    e_size: int  # Number of excitatory units (latent_dim * ei_ratio)
+    i_size: int  # Number of inhibitory units (latent_dim - e_size)
+
+    # Key differences from CTRNNModel:
+    # 1. Readout from E units only (when readout_e_only=True)
+    # 2. EI initialization: E columns scaled by I/E ratio for balance
+    def readout(self, z_t) -> Tensor: ...  # z_t[:, :e_size] when readout_e_only
+```
 
 **Dale constraint**: When `dale=True`, recurrent weights are decomposed as `|W| @ diag(sign)` where the sign mask is fixed (first 80% excitatory, rest inhibitory).
+
+**EI initialization**: E columns of the recurrent weight matrix are scaled by `(e_size / i_size)` to balance excitatory and inhibitory inputs to each unit.
+
+**Readout**: When `readout_e_only=True` (default), only excitatory units are used for readout, matching the biological constraint that long-range cortical projections are exclusively excitatory.
 
 ---
 
@@ -425,6 +457,100 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
 ```
 
 `DendPLRNNModel` and `ALRNNModel` are placeholders that inherit from `ShallowPLRNNModel`.
+
+### Latent Circuit Model (Paradigm A)
+
+**Module**: `neuralrnn.models.latent_circuit`
+
+Low-dimensional recurrent circuit embedded in high-dimensional neural space via orthonormal matrix Q (Cayley transform). Ported from Langdon & Engel (2025), Nature Neuroscience.
+
+#### `LatentCircuitConfig`
+
+```python
+class LatentCircuitConfig(NeuralRNNConfig):
+    model_type = "latent_circuit"
+
+    def __init__(
+        self,
+        input_dim: int = 6,         # Task input dimension K
+        latent_dim: int = 8,        # Number of latent nodes n
+        output_dim: int = 2,        # Task output dimension
+        embedding_dim: int = 50,    # High-dimensional RNN size N
+        dt: float = 40.0,           # Discretization step (ms)
+        tau: float = 200.0,         # Time constant (ms), alpha = dt/tau
+        sigma_rec: float = 0.15,    # Recurrent noise std
+        activation: str = "relu",   # Nonlinearity (only relu supported)
+        **kwargs,
+    ) -> None: ...
+```
+
+#### `LatentCircuitModel`
+
+```python
+@register_model("latent_circuit")
+class LatentCircuitModel(NeuralDynamicsModel):
+    config_class = LatentCircuitConfig
+
+    # Recurrence: x_t = (1-α) x_{t-1} + α ReLU(w_rec x_{t-1} + w_in u_t + noise)
+    def recurrence(self, x_t, z_prev, *, inputs=None) -> Tensor: ...
+    def readout(self, z_t) -> Tensor: ...
+
+    # Embedding
+    @property
+    def embedding_matrix(self) -> Tensor:   # Q of shape (n, N), orthonormal
+    def embed(self, x: Tensor) -> Tensor:   # x @ Q: latent -> high-dim
+    def project(self, y: Tensor) -> Tensor: # y @ Q^T: high-dim -> latent
+
+    # Constraints (call after each gradient step)
+    def apply_constraints(self) -> None: ...  # Recompute Q, reapply masks
+```
+
+---
+
+### Tiny RNN Model (Paradigm B — Behavioral Fitting)
+
+**Module**: `neuralrnn.models.tiny_rnn`
+
+Small GRU RNN (1-4 units) for behavioral prediction in reward-learning tasks. Ported from Ji-An, Benna & Mattar (2025), Nature.
+
+#### `TinyRNNConfig`
+
+```python
+class TinyRNNConfig(NeuralRNNConfig):
+    model_type = "tiny_rnn"
+
+    def __init__(
+        self,
+        input_dim: int = 3,         # [action, stage2, reward]
+        latent_dim: int = 2,        # Hidden units (1-4 typically)
+        output_dim: int = 2,        # Number of actions
+        rnn_type: str = "GRU",      # "GRU" (standard)
+        readout_FC: bool = True,    # Fully-connected vs diagonal readout
+        trainable_h0: bool = False, # Trainable initial hidden state
+        l1_weight: float = 1e-5,    # L1 regularization on recurrent weights
+        **kwargs,
+    ) -> ...
+```
+
+#### `TinyRNNModel`
+
+```python
+@register_model("tiny_rnn")
+class TinyRNNModel(NeuralDynamicsModel):
+    config_class = TinyRNNConfig
+
+    # GRU single-step (manual implementation using gru weights)
+    def recurrence(self, x_t, z_prev, *, inputs=None) -> Tensor: ...
+    def readout(self, z_t) -> Tensor: ...
+
+    # Efficient full-sequence forward (uses nn.GRU internally)
+    def forward(self, inputs, ...) -> DynamicsModelOutput: ...
+
+    # L1 regularization on recurrent weights
+    def get_l1_loss(self) -> Tensor: ...
+```
+
+**Note**: Input is batch-first `(B, T, input_dim)`. The input at each trial is the **previous** trial's `[action, stage2, reward]`, and the target is the **current** trial's action. This prevents data leakage.
 
 ---
 
@@ -655,6 +781,7 @@ def load_dataset(name: str, **overrides):
 | `"lorenz63"` | timeseries | Lorenz 63 attractor (CNS2023 benchmark) |
 | `"perceptual_decision_making"` | neurogym | Perceptual decision making task |
 | `"dms_lowrank_rank2"` | trained_rnn | Rank-2 DMS network (Harvard Dataverse) |
+| `"bartolo_monkey"` | behavioral | Bartolo monkey probabilistic reversal learning (Ji-An et al. 2025) |
 
 ### Download Utilities
 

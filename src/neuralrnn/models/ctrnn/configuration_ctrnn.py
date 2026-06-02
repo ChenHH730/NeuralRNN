@@ -41,6 +41,7 @@ class CTRNNConfig(NeuralRNNConfig):
         trainable_h0: bool = False,
         sigma_rec: float = 0.0,
         relu_after_blend: bool = False,
+        noise_alpha_scaling: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(input_dim=input_dim, latent_dim=latent_dim,
@@ -51,6 +52,7 @@ class CTRNNConfig(NeuralRNNConfig):
         self.trainable_h0 = trainable_h0
         self.sigma_rec = sigma_rec
         self.relu_after_blend = relu_after_blend
+        self.noise_alpha_scaling = noise_alpha_scaling
 
 
 class VanillaRNNConfig(CTRNNConfig):
@@ -63,9 +65,25 @@ class VanillaRNNConfig(CTRNNConfig):
 
 
 class EIRNNConfig(CTRNNConfig):
-    """兴奋-抑制 RNN（Dale 约束默认开启）。"""
+    """Excitatory-Inhibitory RNN (Dale's principle enforced by default).
+
+    Extended from CTRNNConfig with EI-specific parameters:
+        readout_e_only: If True, readout only from excitatory units (first e_size units).
+                        This matches the original E-I RNN paper (Song et al., 2016) where
+                        long-range projections are exclusively excitatory.
+        init_method:    Weight initialization method ('kaiming' or 'gamma').
+
+    Reference:
+        Song, H.F., Yang, G.R. and Wang, X.J., 2016.
+        Training excitatory-inhibitory recurrent neural networks
+        for cognitive tasks: a simple and flexible framework.
+        PLoS computational biology, 12(2).
+    """
     model_type = "ei_rnn"
 
-    def __init__(self, **kwargs):
+    def __init__(self, readout_e_only: bool = True, init_method: str = "kaiming",
+                 **kwargs):
         kwargs.setdefault("dale", True)
         super().__init__(**kwargs)
+        self.readout_e_only = readout_e_only
+        self.init_method = init_method
