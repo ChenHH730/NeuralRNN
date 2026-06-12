@@ -30,6 +30,14 @@ class TrainingArguments:
     device: str = "cpu"                # "cpu" / "cuda" / "cuda:0"
     seed: int = 0
 
+    # —— Dropout（训练时隐藏状态正则化）——
+    # 灵感来自 trainRNNbrain：mask 采样一次，整个 rollout 复用（"dead neuron" 方式）。
+    # dropout_rate=0 关闭（默认）。推荐范围：0.05–0.2。
+    # dropout_sampling: "uniform"（等概率）/ "participation"（按参与度加权）/ "output_weights"（按输出权重加权）
+    dropout_rate: float = 0.0
+    dropout_sampling: str = "uniform"
+    dropout_beta: float = 1.0           # softmax 温度（非 uniform 采样时控制集中度）
+
     # —— 课程式 forcing（GTF / teacher forcing 退火，可选）——
     # 若 Objective 支持 alpha 退火，可由 Trainer 在训练中读取并更新
     anneal_forcing: bool = False

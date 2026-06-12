@@ -828,6 +828,13 @@ class TrainingArguments:
     device: str = "cpu"                   # "cpu" / "cuda" / "cuda:0"
     seed: int = 0
 
+    # Dropout (hidden-state regularization during training)
+    # Ported from trainRNNbrain: mask sampled once per forward pass ("dead neuron" strategy).
+    # Recommended range: 0.05–0.2. Default 0 = disabled.
+    dropout_rate: float = 0.0
+    dropout_sampling: str = "uniform"     # "uniform" / "participation" / "output_weights"
+    dropout_beta: float = 1.0            # Softmax temperature for non-uniform sampling
+
     # Forcing annealing (GTF / teacher forcing)
     anneal_forcing: bool = False
     forcing_start: float = 1.0
@@ -1018,6 +1025,29 @@ class AnalyticPLRNNFixedPointFinder:
         piecewise-linear structure. Requires model.supports_analytic_fixed_points."""
 ```
 
+#### `ScipyFixedPointFinder`
+
+Ported from trainRNNbrain's `DynamicSystemAnalyzer`. Uses scipy's `fsolve` (exact root-finding) or `minimize(method='Powell')` (approximate). More robust for stiff systems than the gradient-based numeric backend.
+
+```python
+class ScipyFixedPointFinder:
+    def __init__(
+        self,
+        n_candidates: int = 100,     # Number of initial candidate points
+        mode: str = "exact",         # "exact" (fsolve) or "approx" (Powell)
+        fun_tol: float = 1e-12,      # Function value tolerance
+        sigma_init_guess: float = 0.01,  # Gaussian noise for init guesses
+        diff_cutoff: float = 1e-7,   # Deduplication L2 distance
+        seed: int = 42,
+    ) -> None: ...
+
+    def find(self, model: NeuralDynamicsModel, *,
+             task_input: Tensor | None = None,
+             init_states: Tensor | None = None) -> FixedPointSet:
+        """Find fixed points using scipy root-finding.
+        mode="exact" uses fsolve (Levenberg-Marquardt); mode="approx" uses Powell."""
+```
+
 #### Unified Entry
 
 ```python
@@ -1025,7 +1055,7 @@ def find_fixed_points(model: NeuralDynamicsModel, *, backend: str = "auto",
                       task_input: Tensor | None = None,
                       max_order: int = 1, **kwargs) -> FixedPointSet:
     """Auto-select backend: analytic (if supported) else numeric.
-    backend: "auto" / "numeric" / "analytic"."""
+    backend: "auto" / "numeric" / "analytic" / "scipy"."""
 ```
 
 ### Linearization
@@ -1144,6 +1174,41 @@ def hellinger_distance(p, q) -> float:
     """Hellinger distance between two distributions (arrays)."""
 ```
 
+### Line Attractor Analysis
+
+**Module**: `neuralrnn.analysis.line_attractor`
+
+Ported from trainRNNbrain's `DynamicSystemAnalyzerCDDM`. Analyzes line attractors — continuous slow manifolds where the network state drifts very slowly (‖RHS‖ ≈ 0), supporting stable maintenance of continuous variables.
+
+```python
+@dataclass
+class LineAttractorPoint:
+    z: np.ndarray                       # State-space coordinate (M,)
+    speed: float                        # ‖F(z) - z‖
+    distance: float                     # Cumulative distance along LA
+    eigenvalues: np.ndarray | None      # Jacobian eigenvalues
+    jacobian: np.ndarray | None         # Jacobian matrix
+
+@dataclass
+class LineAttractorResult:
+    points: list[LineAttractorPoint]
+    endpoints: tuple[np.ndarray, np.ndarray]  # (left, right)
+    projection_axes: np.ndarray | None        # (3, M) for 3D viz
+
+def find_line_attractor_endpoints(model, *, context_input, n_steps=1000,
+                                   relax_steps=10, initial_state=None):
+    """Find left/right endpoints by running with nudged inputs."""
+
+def walk_line_attractor(model, *, context_input, endpoint_left, endpoint_right,
+                        n_points=31, max_iter=100):
+    """Walk along line attractor, minimizing ‖RHS‖² at each point.
+    Uses scipy.optimize.minimize with SLSQP."""
+
+def compute_line_attractor(model, *, context_input, projection_axes=None,
+                           n_steps=1000, n_points=31) -> LineAttractorResult:
+    """Unified entry: find endpoints → walk → compute analytics."""
+```
+
 ### Manifold Analysis
 
 **Module**: `neuralrnn.analysis.manifold`
@@ -1168,7 +1233,116 @@ def neuralflow_analysis(spike_data, **kwargs):
 
 **Module**: `neuralrnn.visualization`
 
-Placeholder for unified plotting utilities (phase portraits, fixed point overlays, spectrum plots, reconstruction comparisons). To be expanded as models are ported.
+Comprehensive plotting utilities for dynamical systems analysis. All functions accept **data** (numpy arrays, dataclasses), not models — visualization is decoupled from analysis. All functions accept an optional `ax` parameter for composition and return `(fig, ax)`.
+
+### Trajectory Plots
+
+```python
+def plot_trajectories_2d(trajectories, pca_result=None, *,
+                         colors=None, labels=None, ax=None,
+                         alpha=0.5, linewidth=0.5, show_legend=True):
+    """Plot multiple trajectories projected to 2D PCA plane.
+    trajectories: list of (T_i, M) arrays. Each gets its own color/label."""
+
+def plot_trajectories_3d(trajectories, pca_result=None, *,
+                         colors=None, labels=None, ax=None,
+                         alpha=0.5, linewidth=0.5, elev=25, azim=45):
+    """Plot trajectories in 3D PCA space.
+    elev/azim: camera angles for 3D rotation control."""
+```
+
+### Fixed Point Plots
+
+```python
+def plot_fixed_points(fixed_points, pca_result=None, *,
+                      ax=None, colors=None, markers=None, size=80):
+    """Plot fixed points on 2D PCA plane with stability coloring.
+    stable=blue circle, unstable=red X, saddle=orange triangle."""
+
+def plot_fixed_points_3d(fixed_points, pca_result=None, *,
+                         ax=None, colors=None, elev=25, azim=45):
+    """Plot fixed points in 3D PCA space."""
+```
+
+### Vector Field
+
+```python
+def plot_vector_field(vector_field, *, ax=None, color='gray',
+                      scale=None, width=0.003, alpha=0.7,
+                      speed_colormap='YlOrRd', show_speed=False):
+    """Quiver plot of vector field on 2D plane.
+    show_speed=True: color-encodes speed magnitude."""
+```
+
+### Combined Phase Portrait
+
+```python
+def plot_phase_portrait(trajectories=None, fixed_points=None,
+                        vector_field=None, pca_result=None, *,
+                        colors=None, labels=None, title=None, figsize=(8, 6)):
+    """Combined: trajectories + fixed points + vector field on single 2D plot."""
+```
+
+### Weight Matrices
+
+```python
+def plot_weight_matrix(W, *, title=None, ax=None, cmap='RdBu_r',
+                       center_zero=True, colorbar=True):
+    """Heatmap of a weight matrix (W_inp, W_rec, W_out)."""
+
+def plot_connectivity(W_inp, W_rec, W_out, *, dale_mask=None,
+                      sort=True, figsize=(15, 4)):
+    """Side-by-side heatmaps of input/recurrent/output weight matrices.
+    If dale_mask given, sorts neurons by E/I identity."""
+```
+
+### Line Attractor Plots
+
+```python
+def plot_line_attractor(la_result, pca_result=None, *,
+                        ax=None, show_rhs=True, color='#2196F3'):
+    """Plot line attractor in 2D PCA space with optional |RHS|² color coding."""
+
+def plot_line_attractor_3d(la_result, projection_axes, *,
+                           ax=None, trajectories=None, elev=25, azim=45):
+    """Plot line attractor in 3D subspace (e.g. choice/context/sensory).
+    projection_axes: (3, M) defining the 3D subspace."""
+```
+
+### Animation
+
+```python
+def animate_trajectories_3d(trajectories, pca_result=None, *,
+                            colors=None, labels=None, fps=30,
+                            duration=10.0, elev=25, step=2):
+    """Create rotating 3D animation of trajectories (camera orbits z-axis).
+    Returns matplotlib.animation.FuncAnimation."""
+
+def animate_trajectory_progression(trajectories, pca_result=None, *,
+                                   colors=None, labels=None, projection="3d",
+                                   fps=30, n_frames=None, elev=25, azim=45,
+                                   linewidth=1.0, alpha=0.8, trail_alpha=0.15):
+    """Progressive trajectory drawing animation — reveals trajectories timestep
+    by timestep, showing how RNN states evolve over time.
+    projection: "2d" or "3d". Returns matplotlib.animation.FuncAnimation."""
+```
+
+### Other Plots
+
+```python
+def plot_averaged_responses(responses, dale_mask=None, *, ax=None,
+                            cmap='RdBu_r', labels=None):
+    """Heatmap of per-cluster averaged firing rate trajectories."""
+
+def plot_psychometric_curves(curves, *, ax=None, colors=None):
+    """Plot psychometric curves (coherence vs P(right))."""
+
+def plot_trial_predictions(predictions, targets, *, mask=None,
+                           n_trials=6, figsize=(12, 8)):
+    """Plot multiple trials: predicted vs target output traces.
+    Handles dimension mismatches: integer class labels (B, T) are auto-expanded
+    to one-hot when predictions is (B, T, O) with O > 1."""
+```
 
 ---
 

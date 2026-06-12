@@ -262,6 +262,163 @@ class AnalyticPLRNNFixedPointFinder:
 
 
 # =========================================================================
+# scipy 后端（移植自 trainRNNbrain DynamicSystemAnalyzer）
+# =========================================================================
+class ScipyFixedPointFinder:
+    """scipy 后端：fsolve 精确求根 + Powell 近似最小化（移植自 trainRNNbrain）。
+
+    ⚠️ WARNING: 此后端在 CTRNN（Euler 离散步进）上不太稳定，不推荐使用。
+    fsolve 的精确模式（mode='exact'）经常收敛到非不动点，因为 Euler 离散化引入的
+    数值误差使得 RHS(z)=0 的精确解可能不存在。approx 模式（Powell）更鲁棒但仍
+    不如 NumericFixedPointFinder（PyTorch Adam 梯度下降）可靠。
+
+    推荐：优先使用 NumericFixedPointFinder（backend='numeric'），
+    仅在 numeric 后端找不到不动点时才尝试此后端的 mode='approx'。
+
+    与 NumericFixedPointFinder 的区别：
+    - fsolve 用 Levenberg-Marquardt 算法直接求 RHS(z)=0
+    - Powell 最小化 ‖RHS‖² 作为 fallback（mode='approx'）
+    - 可利用模型的 jacobian 作为 fsolve 的解析 Jacobian
+    """
+
+    def __init__(self, n_candidates: int = 100, mode: str = "exact",
+                 fun_tol: float = 1e-12, patience: int = 100,
+                 stop_length: int = 100, sigma_init_guess: float = 0.01,
+                 eig_cutoff: float = 1e-10, diff_cutoff: float = 1e-7,
+                 seed: int = 42):
+        """
+        Args:
+            n_candidates: 候选初始点数量
+            mode: "exact"（fsolve）或 "approx"（Powell 最小化）
+            fun_tol: 函数值容差（低于此视为不动点）
+            patience: 连续无改善迭代次数上限
+            stop_length: 搜索停止的迭代上限
+            sigma_init_guess: 初始猜测的高斯噪声标准差
+            eig_cutoff: 特征值判为零的阈值
+            diff_cutoff: 两点判为重复的 L2 距离阈值
+            seed: 随机种子
+        """
+        self.n_candidates = n_candidates
+        self.mode = mode
+        self.fun_tol = fun_tol
+        self.patience = patience
+        self.stop_length = stop_length
+        self.sigma_init_guess = sigma_init_guess
+        self.eig_cutoff = eig_cutoff
+        self.diff_cutoff = diff_cutoff
+        self.seed = seed
+
+    def _rhs_numpy(self, model, z_np, task_input_np):
+        """计算 RHS(z) = F(z) - z，返回 numpy。"""
+        device = next(model.parameters()).device
+        z_t = torch.as_tensor(z_np, dtype=torch.float32, device=device).unsqueeze(0)
+        xin = None
+        if task_input_np is not None:
+            xin = torch.as_tensor(task_input_np, dtype=torch.float32, device=device).unsqueeze(0)
+        with torch.no_grad():
+            f = model.recurrence(xin, z_t).squeeze(0)
+        return (f - z_t.squeeze(0)).cpu().numpy()
+
+    def _jacobian_numpy(self, model, z_np, task_input_np):
+        """计算 Jacobian ∂RHS/∂z，返回 numpy。"""
+        device = next(model.parameters()).device
+        z_t = torch.as_tensor(z_np, dtype=torch.float32, device=device)
+        xin = None
+        if task_input_np is not None:
+            xin = torch.as_tensor(task_input_np, dtype=torch.float32, device=device).unsqueeze(0)
+        J = model.jacobian(z_t, inputs=xin).cpu().numpy()
+        return J - np.eye(J.shape[0])  # ∂(F(z)-z)/∂z = J_F - I
+
+    def find(self, model: NeuralDynamicsModel, *, task_input: torch.Tensor | None = None,
+             init_states: torch.Tensor | None = None) -> FixedPointSet:
+        """搜索不动点。task_input: (input_dim,) 固定输入条件。"""
+        from scipy.optimize import fsolve, minimize
+
+        was_training = model.training
+        model.eval()
+
+        M = model.config.latent_dim
+        device = next(model.parameters()).device
+        rng = np.random.RandomState(self.seed)
+
+        # 准备 numpy 格式的 task_input
+        ti_np = task_input.cpu().numpy() if task_input is not None else None
+
+        # 生成初始猜测
+        if init_states is not None:
+            candidates = init_states.cpu().numpy()
+        else:
+            candidates = rng.randn(self.n_candidates, M) * self.sigma_init_guess
+
+        found_points: list[np.ndarray] = []
+        found_speeds: list[float] = []
+        found_eigs: list[np.ndarray] = []
+
+        for z0 in candidates:
+            if self.mode == "exact":
+                try:
+                    z_sol, info, ier, msg = fsolve(
+                        self._rhs_numpy, z0,
+                        args=(model, ti_np),
+                        fprime=self._jacobian_numpy,
+                        full_output=True, xtol=self.fun_tol
+                    )
+                except Exception:
+                    continue
+                speed = np.linalg.norm(self._rhs_numpy(model, z_sol, ti_np))
+                if speed > np.sqrt(self.fun_tol):
+                    continue
+            else:  # approx
+                def obj(z):
+                    r = self._rhs_numpy(model, z, ti_np)
+                    return 0.5 * np.dot(r, r)
+
+                try:
+                    res = minimize(obj, z0, method='Powell',
+                                   options={'maxiter': self.stop_length,
+                                            'ftol': self.fun_tol})
+                except Exception:
+                    continue
+                z_sol = res.x
+                speed = np.sqrt(2 * res.fun)
+                if speed > np.sqrt(self.fun_tol):
+                    continue
+
+            # 去重
+            is_dup = False
+            for fp in found_points:
+                if np.linalg.norm(z_sol - fp) < self.diff_cutoff:
+                    is_dup = True
+                    break
+            if is_dup:
+                continue
+
+            # 计算 Jacobian 特征值和稳定性
+            try:
+                J = self._jacobian_numpy(model, z_sol, ti_np) + np.eye(M)
+                eig = np.linalg.eigvals(J)
+            except Exception:
+                eig = None
+
+            found_points.append(z_sol)
+            found_speeds.append(speed)
+            found_eigs.append(eig)
+
+        # 构建 FixedPointSet
+        fps = FixedPointSet()
+        for z, sp, eig in zip(found_points, found_speeds, found_eigs):
+            is_stable = None
+            if eig is not None:
+                is_stable = bool(np.max(np.abs(eig)) < 1.0)
+            fps.points.append(FixedPoint(
+                z=z, speed=sp, eigenvalues=eig, is_stable=is_stable))
+
+        if was_training:
+            model.train()
+        return fps
+
+
+# =========================================================================
 # 统一入口
 # =========================================================================
 def find_fixed_points(model: NeuralDynamicsModel, *, backend: str = "auto",
@@ -269,9 +426,18 @@ def find_fixed_points(model: NeuralDynamicsModel, *, backend: str = "auto",
                       max_order: int = 1, **kwargs) -> FixedPointSet:
     """自动择优：解析优先（若模型支持），否则数值。
 
-    backend: "auto" / "numeric" / "analytic"。
-    task_input: 数值后端的输入条件；max_order: 解析后端搜索的最高环阶。
+    backend: "auto" / "numeric" / "analytic" / "scipy"。
+    task_input: 数值/scipy 后端的输入条件；max_order: 解析后端搜索的最高环阶。
+
+    后端对比：
+    - numeric:  PyTorch Adam 梯度下降 ‖F(z)−z‖²（通用，GPU 友好，推荐）
+    - analytic: PLRNN 精确求解（仅限 PLRNN 模型）
+    - scipy:    scipy fsolve / Powell（⚠️ 不太稳定，不推荐使用；
+                Euler 离散步进下 fsolve 经常收敛到非不动点；
+                仅在 numeric 后端找不到结果时可尝试 mode='approx'）
     """
     if backend == "analytic" or (backend == "auto" and model.supports_analytic_fixed_points):
         return AnalyticPLRNNFixedPointFinder(max_order=max_order, **kwargs).find(model)
+    if backend == "scipy":
+        return ScipyFixedPointFinder(**kwargs).find(model, task_input=task_input)
     return NumericFixedPointFinder(**kwargs).find(model, task_input=task_input)

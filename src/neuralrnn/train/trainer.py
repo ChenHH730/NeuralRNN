@@ -12,7 +12,9 @@ Objective 决定（ARCHITECTURE §4）。
 设计要点：
   - 以 step 为单位（一个 batch = 一 step），契合 DSR/任务两种范式；
   - 支持梯度裁剪、可选 lr 调度、可选 GTF forcing 退火、定期日志/评估/存档；
-  - 不把任何范式逻辑写进来，保证"换 Objective 即换范式"。
+  - 不把任何范式逻辑写进来，保证"换 Objective 即换范式"；
+  - 支持隐藏状态 dropout（dropout_rate > 0 时通过 forward_with_dropout 实现，
+    task loss 在 clean 输出上计算，与 trainRNNbrain 策略一致）。
 """
 from __future__ import annotations
 
@@ -23,7 +25,7 @@ import torch
 
 from .training_args import TrainingArguments
 from .objectives.base import Objective
-from ..modeling_utils import NeuralDynamicsModel
+from ..modeling_utils import NeuralDynamicsModel, DynamicsModelOutput
 
 
 def _build_optimizer(params, args: TrainingArguments):
@@ -66,6 +68,30 @@ class Trainer:
         self.optimizer = _build_optimizer(self.model.parameters(), self.args)
         self.scheduler = _build_scheduler(self.optimizer, self.args)
 
+        # Dropout: participation tracking (EMA) for non-uniform sampling
+        self._participation: torch.Tensor | None = None
+        self._participation_eta: float = 0.1  # EMA decay
+
+    @staticmethod
+    def _compute_participation(states: torch.Tensor, q: float = 0.9) -> torch.Tensor:
+        """Compute per-neuron participation metric (quantile + std of |states|).
+
+        Matches trainRNNbrain's get_participation_():
+            participation[i] = quantile(|states[:, :, i]|, q) + std(|states[:, :, i]|)
+
+        Args:
+            states: (B, T, M) hidden states
+            q: quantile level (default 0.9)
+
+        Returns:
+            (M,) participation vector
+        """
+        abs_s = states.detach().abs()  # (B, T, M)
+        flat = abs_s.reshape(-1, abs_s.shape[-1])  # (N, M)
+        quant = torch.quantile(flat, q, dim=0)
+        std = flat.std(dim=0)
+        return quant + std
+
     # ---- 数据：统一走 sample_batch（DSR/任务都支持）并搬到 device ----
     def _next_batch(self) -> dict:
         batch = self.dataset.sample_batch()
@@ -80,12 +106,53 @@ class Trainer:
 
     def train(self) -> list[dict]:
         self.model.train()
+        use_dropout = self.args.dropout_rate > 0
         for step in range(self.args.max_steps):
             self._maybe_anneal_forcing(step)
             batch = self._next_batch()
 
             self.optimizer.zero_grad()
-            loss, logs = self.objective.compute_loss(self.model, batch)
+
+            if use_dropout:
+                # Dropout: task loss on clean output, matching trainRNNbrain strategy.
+                # forward_with_dropout returns (states_clean, outputs_clean,
+                # states_dropped, outputs_dropped) in one pass.
+                # For participation sampling, initialize with uniform on first step
+                if self.args.dropout_sampling == "participation" and self._participation is None:
+                    # First step: use uniform to bootstrap participation
+                    _boot_sampling = "uniform"
+                    part = None
+                else:
+                    _boot_sampling = self.args.dropout_sampling
+                    part = self._participation if self.args.dropout_sampling == "participation" else None
+                sc, oc, sd, od = self.model.forward_with_dropout(
+                    batch["inputs"],
+                    dropout_rate=self.args.dropout_rate,
+                    dropout_sampling=_boot_sampling,
+                    dropout_beta=self.args.dropout_beta,
+                    participation=part,
+                )
+                # Update participation via EMA
+                if self.args.dropout_sampling == "participation":
+                    M = self.model.config.latent_dim
+                    new_part = self._compute_participation(sc)
+                    if self._participation is None:
+                        self._participation = new_part
+                    else:
+                        self._participation = ((1 - self._participation_eta) * self._participation
+                                               + self._participation_eta * new_part)
+
+                # Patch model.forward temporarily so objective sees clean output
+                _orig_fwd = self.model.forward
+                self.model.forward = lambda *a, **kw: DynamicsModelOutput(
+                    outputs=oc, states=sc)
+                try:
+                    loss, logs = self.objective.compute_loss(self.model, batch)
+                finally:
+                    self.model.forward = _orig_fwd
+            else:
+                loss, logs = self.objective.compute_loss(self.model, batch)
+
             loss.backward()
             if self.args.grad_clip_norm is not None:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.args.grad_clip_norm)

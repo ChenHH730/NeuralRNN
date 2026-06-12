@@ -115,6 +115,97 @@ class NeuralDynamicsModel(nn.Module):
             traj.append(z)
         return torch.stack(traj, dim=1)
 
+    # ====================== Dropout 支持（训练用）======================
+    def forward_with_dropout(
+        self,
+        inputs: torch.Tensor,
+        *,
+        dropout_rate: float = 0.0,
+        dropout_sampling: str = "uniform",
+        dropout_beta: float = 1.0,
+        participation: torch.Tensor | None = None,
+        initial_state: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """带 dropout 的 rollout（训练用）。
+
+        Dropout mask 在 rollout 前采样一次，对每个时间步的隐藏状态 z_t 应用
+        （乘以 mask，再缩放 1/(1-p) 保持期望值不变），与 trainRNNbrain 的
+        "dead neuron" 策略一致。
+
+        子类可覆盖此方法以实现模型特定的 dropout 行为（如对 W_rec 做 dropout）。
+
+        Returns:
+            states_clean:   (B, T, M)  无 dropout 的隐藏状态
+            outputs_clean:  (B, T, O)  无 dropout 的输出
+            states_dropped: (B, T, M)  有 dropout 的隐藏状态
+            outputs_dropped:(B, T, O)  有 dropout 的输出
+        """
+        if dropout_rate <= 0:
+            out = self.forward(inputs, initial_state=initial_state, return_states=True)
+            s = out.states
+            return s, out.outputs, s, out.outputs
+
+        assert inputs.dim() == 3, "inputs 形状应为 (batch, T, input_dim)"
+        batch_size, T = inputs.shape[0], inputs.shape[1]
+        device = inputs.device
+        M = self.config.latent_dim
+
+        z0 = initial_state if initial_state is not None else self.init_state(batch_size, device)
+
+        # ---- 采样 dropout mask (M,) —— 一次采样，整个 rollout 复用 ----
+        mask = self._sample_dropout_mask(M, dropout_rate, dropout_sampling,
+                                         dropout_beta, participation, device)
+        scale = 1.0 / (1.0 - dropout_rate)  # inverted dropout scaling
+
+        # ---- Clean rollout ----
+        z = z0.clone()
+        states_clean, outputs_clean = [], []
+        for t in range(T):
+            z = self.recurrence(inputs[:, t], z, inputs=inputs)
+            states_clean.append(z)
+            outputs_clean.append(self.readout(z))
+
+        # ---- Dropout rollout ----
+        z = z0.clone()
+        states_dropped, outputs_dropped = [], []
+        for t in range(T):
+            z = self.recurrence(inputs[:, t], z, inputs=inputs)
+            z = z * mask * scale                    # apply dropout
+            states_dropped.append(z)
+            outputs_dropped.append(self.readout(z))
+
+        sc = torch.stack(states_clean, dim=1)
+        oc = torch.stack(outputs_clean, dim=1)
+        sd = torch.stack(states_dropped, dim=1)
+        od = torch.stack(outputs_dropped, dim=1)
+        return sc, oc, sd, od
+
+    @staticmethod
+    def _sample_dropout_mask(
+        M: int, rate: float, sampling: str, beta: float,
+        participation: torch.Tensor | None, device: torch.device,
+    ) -> torch.Tensor:
+        """采样 dropout mask (M,)。三种策略：uniform / participation / output_weights。"""
+        if sampling == "uniform":
+            probs = torch.ones(M, device=device)
+        elif sampling == "participation":
+            if participation is None:
+                raise ValueError("sampling='participation' requires participation tensor")
+            probs = torch.softmax(beta * participation.to(device).float(), dim=0)
+        elif sampling == "output_weights":
+            # 不在此处访问 W_out（模型无关）；用均匀兜底，子类可覆盖
+            probs = torch.ones(M, device=device)
+        else:
+            raise ValueError(f"Unknown dropout_sampling: {sampling}")
+
+        p_drop = torch.clamp(rate * M * probs, 0.0, 0.999)
+        keep_prob = 1.0 - p_drop
+        mask = torch.bernoulli(keep_prob)
+        # 保证至少保留一个神经元
+        if mask.sum() == 0:
+            mask[torch.randint(0, M, (1,))] = 1.0
+        return mask
+
     # ---------- 分析支持（解析模型可覆盖以加速）----------
     @property
     def supports_analytic_fixed_points(self) -> bool:

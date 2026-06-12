@@ -7,6 +7,7 @@ docs/ARCHITECTURE.md
 docs/PORTING_GUIDE.md
 notebook/figs/
 notebook/models/
+notebook/test/
 # C extensions
 *.so
 

@@ -57,6 +57,9 @@ from .train import (
     BehavioralObjective, VariationalObjective,
 )
 
+# —— 可视化 ——
+from . import visualization
+
 __all__ = [
     "__version__",
     "NeuralRNNConfig", "NeuralDynamicsModel", "DynamicsModelOutput",

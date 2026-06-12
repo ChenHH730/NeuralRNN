@@ -1,10 +1,11 @@
-"""可解释性分析层：不动点 / 线性化 / 向量场 / 降维 / 重构指标 / Lyapunov / 流形。
+"""可解释性分析层：不动点 / 线性化 / 向量场 / 降维 / 重构指标 / Lyapunov / 流形 / 线吸引子。
 
 铁律：本层只通过模型公共契约工作，不 import 任何具体模型类（见 PORTING_GUIDE 契约D）。
 """
 from .fixed_points import (
     find_fixed_points,
     NumericFixedPointFinder,
+    ScipyFixedPointFinder,
     AnalyticPLRNNFixedPointFinder,
     FixedPoint,
     FixedPointSet,
@@ -36,10 +37,18 @@ from .perturbation import (
     PerturbationResult,
 )
 from .psychometric import compute_psychometric, PsychometricCurve, PsychometricResult
+from .line_attractor import (
+    find_line_attractor_endpoints,
+    walk_line_attractor,
+    compute_line_attractor,
+    LineAttractorPoint,
+    LineAttractorResult,
+)
 
 __all__ = [
     "find_fixed_points",
     "NumericFixedPointFinder",
+    "ScipyFixedPointFinder",
     "AnalyticPLRNNFixedPointFinder",
     "FixedPoint",
     "FixedPointSet",
@@ -70,4 +79,9 @@ __all__ = [
     "compute_psychometric",
     "PsychometricCurve",
     "PsychometricResult",
+    "find_line_attractor_endpoints",
+    "walk_line_attractor",
+    "compute_line_attractor",
+    "LineAttractorPoint",
+    "LineAttractorResult",
 ]
