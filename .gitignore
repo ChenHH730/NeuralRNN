@@ -8,6 +8,9 @@ docs/PORTING_GUIDE.md
 notebook/figs/
 notebook/models/
 notebook/test/
+notebook/test_analysis_fixes.py
+notebook/test.ipynb
+
 # C extensions
 *.so
 

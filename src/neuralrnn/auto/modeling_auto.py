@@ -18,11 +18,10 @@ from .configuration_auto import AutoConfig, CONFIG_REGISTRY
 # model_type(str) -> 模型类
 MODEL_REGISTRY: dict[str, type[NeuralDynamicsModel]] = {}
 
-# 懒加载映射：model_type -> "模块路径"。避免导入时把所有重依赖模型一次性加载。
+# Lazy modules mapping：model_type -> "模块路径"。避免导入时把所有重依赖模型一次性加载。
 # 移植新模型后在此登记一行即可（也可在模型模块被导入时由 @register_model 直接填充）。
 _LAZY_MODULES: dict[str, str] = {
     "ctrnn": "neuralrnn.models.ctrnn.modeling_ctrnn",
-    "vanilla_rnn": "neuralrnn.models.ctrnn.modeling_ctrnn",
     "ei_rnn": "neuralrnn.models.ctrnn.modeling_ctrnn",
     "shallow_plrnn": "neuralrnn.models.plrnn.modeling_plrnn",
     "dend_plrnn": "neuralrnn.models.plrnn.modeling_plrnn",

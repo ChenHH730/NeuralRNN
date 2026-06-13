@@ -1,7 +1,7 @@
-# 理论背景：作为离散动力系统的 RNN
+# Recurrent neural network (RNN) as discrete dynamical system
 
-本文给出 NeuralRNN 的统一数学视角。理解了这一节，框架里"为什么所有模型只需实现
-`recurrence` 与 `readout`"、"为什么分析器对模型无感"就都顺理成章了。
+
+This part set a dynamical system framework for NeuralRNN by introducing (1) RNN structure, (2) fixed point and trajectory, and (3) dynamical reconstruction.
 
 ---
 
@@ -44,27 +44,27 @@ PLRNN 的分段线性结构带来一个巨大好处：不动点与 $k$-环可以
 
 ## 2. 不动点与轨迹
 
-**不动点** $z^\*$ 满足 $F_\theta(z^\*, x) = z^\*$（给定输入条件 $x$）。等价地，速度场
+**不动点** $z^*$ 满足 $F_\theta(z^*, x) = z^*$ （给定输入条件 $x$）。等价地，速度场
 
 $$
 v(z) = F_\theta(z, x) - z
 $$
 
 为零。框架的数值不动点搜索就是并行地最小化 $\|v(z)\|^2$（`analysis/fixed_points.py`
-的 `NumericFixedPointFinder`，移植自 nn-brain）。围绕一群不动点常能看出任务的几何结构，
+的 `NumericFixedPointFinder`）。围绕一群不动点常能看出任务的几何结构，
 例如决策任务里沿某方向排成一条**线吸引子**（line attractor），其方向由主特征向量给出。
 
 ---
 
 ## 3. 线性化、雅可比与稳定性
 
-在不动点附近，动力学由**雅可比矩阵** $J = \partial F_\theta / \partial z\big|_{z^\*}$ 主导：
+在不动点附近，动力学由**雅可比矩阵** $J = \partial F_\theta / \partial z\big|_{z^*}$ 主导：
 
 $$
 \delta z_{t} \approx J\,\delta z_{t-1}.
 $$
 
-对**离散**系统，稳定性看 $J$ 的特征值模长：
+对**离散**系统，稳定性看 $J$ 的特征值的模长  $|\lambda_i|$ ：
 
 - 所有 $|\lambda_i| < 1$：**稳定**不动点（吸引子）；
 - 存在 $|\lambda_i| > 1$：**不稳定**方向，个数即鞍点的不稳定维数；

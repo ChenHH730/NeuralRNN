@@ -1,6 +1,6 @@
 """CTRNN 系列模型实现（范式 A 参考实现）。
 
-移植自 nn-brain 的 CTRNN：
+移植自 Song 2016 的 CTRNN：
     r(t+dt) = r(t) + (dt/tau)[-r(t) + f(W_r r + W_x x + b)]
             = (1-alpha) r + alpha * f(pre_activation)
 
@@ -16,7 +16,7 @@ import torch.nn as nn
 
 from ...modeling_utils import NeuralDynamicsModel
 from ...auto.modeling_auto import register_model
-from .configuration_ctrnn import CTRNNConfig, VanillaRNNConfig, EIRNNConfig
+from .configuration_ctrnn import CTRNNConfig, EIRNNConfig
 
 _ACT = {"relu": torch.relu, "tanh": torch.tanh, "softplus": torch.nn.functional.softplus}
 
@@ -81,12 +81,6 @@ class CTRNNModel(NeuralDynamicsModel):
 
     def readout(self, z_t):
         return self.readout_layer(z_t)
-
-
-@register_model("vanilla_rnn")
-class VanillaRNNModel(CTRNNModel):
-    config_class = VanillaRNNConfig
-
 
 @register_model("ei_rnn")
 class EIRNNModel(CTRNNModel):
