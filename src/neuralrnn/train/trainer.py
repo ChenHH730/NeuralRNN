@@ -72,6 +72,10 @@ class Trainer:
         self._participation: torch.Tensor | None = None
         self._participation_eta: float = 0.1  # EMA decay
 
+        # Early-stop & keep-best tracking
+        self._best_loss: float = float('inf')
+        self._best_state_dict: dict | None = None
+
     @staticmethod
     def _compute_participation(states: torch.Tensor, q: float = 0.9) -> torch.Tensor:
         """Compute per-neuron participation metric (quantile + std of |states|).
@@ -153,6 +157,22 @@ class Trainer:
             else:
                 loss, logs = self.objective.compute_loss(self.model, batch)
 
+            # ── Keep best model ──
+            if self.args.keep_best:
+                current_loss = loss.item()
+                if current_loss < self._best_loss:
+                    self._best_loss = current_loss
+                    import copy
+                    self._best_state_dict = copy.deepcopy(self.model.state_dict())
+
+            # ── Early stop ──
+            if self.args.early_stop_loss is not None and loss.item() < self.args.early_stop_loss:
+                if self.args.log_every:
+                    print(f"[train] step={step}  early stop: loss={loss.item():.4f} < {self.args.early_stop_loss}")
+                logs = {"step": step, **logs}
+                self.history.append(logs)
+                break
+
             loss.backward()
             if self.args.grad_clip_norm is not None:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.args.grad_clip_norm)
@@ -180,6 +200,10 @@ class Trainer:
 
             if self.args.save_every and step > 0 and step % self.args.save_every == 0:
                 self.save_checkpoint(step)
+
+        # ── Restore best model ──
+        if self.args.keep_best and self._best_state_dict is not None:
+            self.model.load_state_dict(self._best_state_dict)
 
         return self.history
 

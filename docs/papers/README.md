@@ -1,20 +1,18 @@
-# 论文方法笔记
+# Paper Method Notes
 
-每篇纳入 NeuralRNN 的论文，在此放一份"方法笔记"：说明它解决什么问题、核心方法、
-落到框架里对应哪些模块、以及与原始开源实现的对拍要点。逐篇移植配方在
-[../PORTING_GUIDE.md](../PORTING_GUIDE.md)；本目录侧重**方法本身的讲解**。
+For each paper integrated into NeuralRNN, we keep a "method note": it explains what problem the work addresses, the core method, which framework modules it maps to, and the key diff-test points against the original open-source implementation. The step-by-step porting recipe is in [../PORTING_GUIDE.md](../PORTING_GUIDE.md); this directory focuses on **explaining the methods themselves**.
 
-## 状态总览
+## Status Overview
 
-| 论文 / 项目 | 范式 | 框架落点 | 笔记 | 代码状态 |
+| Paper / Project | Paradigm | Framework Target | Note | Code Status |
 |---|---|---|---|---|
-| nn-brain（CTRNN + 不动点分析） | A | `models/ctrnn` + `analysis` | [ctrnn.md](ctrnn.md) | ✅ 参考实现 |
-| Durstewitz lab（shallowPLRNN / DSR） | B | `models/plrnn` + `analysis` | [plrnn.md](plrnn.md) | ✅ 参考实现 |
-| 低秩 RNN（low-rank RNN） | A | `models/lowrank` | _待写_ | ⬜ 待移植 |
-| Latent Circuit | A | `models/latent_circuit` | _待写_ | ⬜ 待移植 |
-| LFADS | B | `models/lfads` + `VariationalObjective` | _待写_ | ⬜ 待移植 |
-| MARBLE（流形几何） | 分析 | `analysis/manifold` | _待写_ | ⬜ 待移植 |
-| Tiny RNN（行为拟合） | 行为 | `models/tiny_rnn` + CV | [tiny_rnn.md](tiny_rnn.md) | ✅ Ready |
-| neuralflow（连续时间潜流场） | 分析 | `analysis/manifold` | _待写_ | ⬜ 待移植 |
+| nn-brain (CTRNN + fixed-point analysis) | A | `models/ctrnn` + `analysis` | [ctrnn.md](ctrnn.md) | ✅ Reference implementation |
+| Durstewitz lab (shallowPLRNN / DSR) | B | `models/plrnn` + `analysis` | [plrnn.md](plrnn.md) | ✅ Reference implementation |
+| Low-rank RNN | A | `models/lowrank` | _to be written_ | ⬜ Pending port |
+| Latent Circuit | A | `models/latent_circuit` | [latent_circuit.md](latent_circuit.md) | ✅ Ready |
+| LFADS | B | `models/lfads` + `VariationalObjective` | _to be written_ | ⬜ Pending port |
+| MARBLE (manifold geometry) | Analysis | `analysis/manifold` | _to be written_ | ⬜ Pending port |
+| Tiny RNN (behavior fitting) | Behavior | `models/tiny_rnn` + CV | [tiny_rnn.md](tiny_rnn.md) | ✅ Ready |
+| neuralflow (continuous-time latent flow field) | Analysis | `analysis/manifold` | _to be written_ | ⬜ Pending port |
 
-新增论文时：复制 [_TEMPLATE.md](_TEMPLATE.md) → 重命名 → 填写，并在上表加一行。
+When adding a new paper: copy [_TEMPLATE.md](_TEMPLATE.md) → rename → fill in, and add a row to the table above.

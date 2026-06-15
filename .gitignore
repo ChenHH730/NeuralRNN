@@ -10,7 +10,8 @@ notebook/models/
 notebook/test/
 notebook/test_analysis_fixes.py
 notebook/test.ipynb
-
+notebook/*.py
+docs/papers/*_cn.md
 # C extensions
 *.so
 

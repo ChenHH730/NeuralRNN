@@ -15,6 +15,9 @@
 5. [Built-In Models](#5-built-in-models)
    - [CTRNN Family (Paradigm A)](#ctrnn-family-paradigm-a)
    - [PLRNN Family (Paradigm B)](#plrnn-family-paradigm-b)
+   - [Lowrank RNN Model (Paradigm A)](#lowrank-rnn-model-paradigm-a)
+   - [Latent Circuit Model (Paradigm A)](#latent-circuit-model-paradigm-a)
+   - [Tiny RNN Model (Paradigm B)](#tiny-rnn-model-paradigm-b--behavioral-fitting)
 6. [Data Layer](#6-data-layer)
    - [BaseDataset & StandardScaler](#basedataset--standardscaler)
    - [TimeSeriesDataset](#timeseriesdataset)
@@ -458,6 +461,160 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
 
 `DendPLRNNModel` and `ALRNNModel` are placeholders that inherit from `ShallowPLRNNModel`.
 
+### Lowrank RNN Model (Paradigm A)
+
+**Module**: `neuralrnn.models.lowrank`
+
+Low-rank recurrent neural network where the recurrent connectivity matrix is factorized as $W^{rec} = m \\cdot n^T / N$, constraining dynamics to a low-dimensional subspace spanned by columns of $m$. Ported from Dubreuil et al. (2022) *Nature Neuroscience* and Valente et al. (2022) *NeurIPS*.
+
+**Motivation**: Unlike full-rank RNNs where $W^{rec} \\in \\mathbb{R}^{N \\times N}$ has $N^2$ parameters, a low-rank RNN with rank $R \\ll N$ has only $2NR$ recurrent parameters. This:
+- Makes the network's computation **transparent**: activity projected onto the $R$ columns of $m$ reveals the low-dimensional dynamics
+- Enables **population structure analysis**: neurons cluster naturally by their $(m_i, n_i, w^{in}_i, w^{out}_i)$ vectors
+- Supports **resampling**: new networks can be generated from fitted Gaussian mixture distributions while preserving task performance
+
+#### `LowrankRNNConfig`
+
+```python
+class LowrankRNNConfig(NeuralRNNConfig):
+    model_type = "lowrank_rnn"
+
+    def __init__(
+        self,
+        input_dim: int = 1,                    # Number of input channels
+        latent_dim: int = 500,                 # Number of hidden units N
+        output_dim: int = 1,                   # Number of output channels
+        rank: int = 1,                         # Rank R of W_rec = m @ n^T / N
+        alpha: float = 0.2,                    # dt/tau, Euler discretization step
+        noise_std: float = 0.05,               # Recurrent Gaussian noise std
+        dt: float | None = None,              # Integration step (alternative to alpha)
+        tau: float = 100.0,                   # Membrane time constant
+        add_bias: bool = False,               # Whether b is trainable
+        scale_by_hidden_size: bool = True,    # Divide rec/output terms by N
+        activation: str = "tanh",             # Hidden activation ("tanh"/"relu")
+        output_activation: str = "tanh",      # Readout activation ("tanh"/"relu")
+        train_wi: bool = True,                # Train input weights
+        train_wo: bool = True,                # Train output weights
+        train_wrec: bool = True,              # Train m, n low-rank factors
+        train_h0: bool = False,               # Train initial state h0
+        **kwargs,
+    ) -> None: ...
+```
+
+**Parameter guide**:
+- `rank`: Determines the dimensionality of the recurrent subspace. Rank 1 = line attractor, Rank 2 = plane with rotational dynamics, Rank 3+ = more complex manifolds.
+- `scale_by_hidden_size` (default `True`): Matches both original codebases. When True, the recurrent term is divided by `N` and the output term is also divided by `N`.
+- `activation` (default `"tanh"`): The original papers use tanh for both hidden and output activation.
+
+#### `LowrankRNNModel`
+
+```python
+@register_model("lowrank_rnn")
+class LowrankRNNModel(NeuralDynamicsModel):
+    config_class = LowrankRNNConfig
+
+    # ── Dynamics ──
+    # r_t     = tanh(z_t + b)
+    # rec_t   = r_t @ n @ m^T / N
+    # z_{t+1} = z_t + sigma*xi_t + alpha*(-z_t + rec_t + x_t @ Wi_full)
+    # y_t     = out_act(z_t) @ Wo_full / N
+    def recurrence(self, x_t, z_prev, *, inputs=None) -> Tensor: ...
+    def readout(self, z_t) -> Tensor: ...
+
+    # ── Forward (override for precision) ──
+    # return_dynamics=True → returns (output, trajectories) tuple
+    # return_dynamics=False → returns DynamicsModelOutput
+    def forward(self, inputs, *, initial_state=None, n_steps=None,
+                return_states=True, return_dynamics=False): ...
+
+    # ── Analysis utilities ──
+    def svd_reparametrization(self) -> None: ...
+    """Orthogonalize m columns via SVD of m @ n^T. Call before vector field analysis."""
+
+    def clone(self) -> "LowrankRNNModel": ...
+    """Deep copy for reference train() best-model tracking."""
+```
+
+**Key attributes** (for backward compat with reference analysis code):
+
+| Attribute | Shape | Description |
+|-----------|-------|-------------|
+| `m` | `(N, R)` | Recurrent output directions (columns span the dynamic subspace) |
+| `n` | `(N, R)` | Recurrent input directions |
+| `wi` | `(input_dim, N)` | Input weight matrix (before scaling) |
+| `wo` | `(N, output_dim)` | Output weight matrix (before scaling) |
+| `b` | `(N,)` | Bias vector |
+| `h0` | `(N,)` | Initial hidden state |
+| `wi_full` | `(input_dim, N)` | Effective input weights after `si` scaling |
+| `wo_full` | `(N, output_dim)` | Effective output weights after `so` scaling |
+| `hidden_size` | `int` | Alias for `latent_dim` |
+| `alpha` | `float` | Euler step size |
+| `noise_std` | `float` | Noise standard deviation |
+
+**Usage example** (see `notebook/07_lowrank_RNN_paradigmA.ipynb` for the full tutorial):
+
+```python
+from neuralrnn import AutoConfig, AutoModel
+from neuralrnn.models.lowrank import LowrankRNNConfig, LowrankRNNModel
+from neuralrnn.data.tasks import rdm_trials, lr_mante_trials
+
+# ── Create model ──
+cfg = LowrankRNNConfig(input_dim=1, latent_dim=256, output_dim=1,
+                        rank=1, alpha=0.2, noise_std=0.05)
+model = LowrankRNNModel(cfg)
+
+# ── Generate data (neuralrnn built-in task generators) ──
+inputs, targets, mask, conditions = rdm_trials(num_trials=800)
+
+# Split train/val
+split = int(0.8 * len(inputs))
+x_tr, y_tr, m_tr = inputs[:split], targets[:split], mask[:split]
+x_v, y_v, m_v = inputs[split:], targets[split:], mask[split:]
+
+# ── Train using notebook-local train() ──
+# See 07_lowrank_RNN_paradigmA.ipynb for the local train() definition
+train(model, x_tr, y_tr, m_tr, n_epochs=20, lr=5e-3, keep_best=True)
+
+# Or train using NeuralRNN Trainer + SupervisedObjective
+from neuralrnn import Trainer, TrainingArguments, SupervisedObjective
+from neuralrnn.data import CognitiveTaskDataset
+ds = CognitiveTaskDataset(inputs=x_tr, targets=y_tr, mask=m_tr,
+                          conditions=[], batch_size=32)
+Trainer(model, ds, SupervisedObjective(task_type="regression"),
+        TrainingArguments(max_steps=500)).train()
+
+# ── Analysis: project activity onto m-subspace ──
+model.svd_reparametrization()
+m1 = model.m[:, 0].detach().numpy()
+m2 = model.m[:, 1].detach().numpy()  # for rank >= 2
+
+# ── Connectivity inspection ──
+wi = model.wi_full[0].detach().numpy()   # effective input weights
+wo = model.wo_full[:, 0].detach().numpy()  # effective output weights
+
+# ── Population clustering (locally defined helpers) ──
+# See notebook for make_vecs(), gmm_fit(), pop_scatter_linreg() definitions
+vecs = make_vecs(model)
+z, _ = gmm_fit(vecs, n_components=2)
+
+# ── Save / load (safetensors + json) ──
+model.save_pretrained("models/lowrank_rdm/")
+model2 = LowrankRNNModel.from_pretrained("models/lowrank_rdm/")
+```
+
+**Key notes**:
+- All task data generation goes through `neuralrnn.data.tasks` (no reference project dependency).
+- Analysis/plotting helpers (`train()`, `loss_mse()`, `accuracy_general()`, `phi_prime()`,
+  `gmm_fit()`, `make_vecs()`, `pop_scatter_linreg()`, `overlap_matrix()`,
+  `get_lower_tri_heatmap()`, `psychometric_matrices_mante()`) are defined locally
+  in the notebook to keep the framework generic.
+- `to_support_net()` still depends on the reference project's `SupportLowRankRNN` class
+  (not yet ported to neuralrnn).
+- `forward(return_dynamics=True)` returns a raw `(output_tensor, trajectories_tensor)` tuple.
+- `forward(return_dynamics=False)` (default) returns `DynamicsModelOutput`.
+- Tensors are made contiguous before saving to avoid safetensors errors.
+
+---
+
 ### Latent Circuit Model (Paradigm A)
 
 **Module**: `neuralrnn.models.latent_circuit`
@@ -750,6 +907,62 @@ Trainer(model, ds, TeacherForcingObjective(alpha=0.1),
         TrainingArguments(max_steps=5000)).train()
 ```
 
+### `CognitiveTaskDataset`
+
+**Module**: `neuralrnn.data.cognitive_task_dataset`
+
+Wraps cognitive task generators for Paradigm A. Provides a unified interface for training low-rank RNNs and other task-optimized models on cognitive tasks.
+
+```python
+class CognitiveTaskDataset(BaseDataset):
+    kind = "cognitive_task"
+
+    def __init__(
+        self,
+        inputs: Tensor,          # (N, T, input_dim)
+        targets: Tensor,         # (N, T, output_dim)
+        mask: Tensor,            # (N, T, output_dim) boolean
+        conditions: list,        # Per-trial metadata dicts
+        task_name: str = "",     # Task identifier
+        batch_size: int = 128,   # Batch size for sample_batch()
+    ) -> None: ...
+
+    @classmethod
+    def from_task(cls, task_name: str, batch_size: int = 128, **kwargs) -> "CognitiveTaskDataset":
+        """Create from a named task generator in TASK_REGISTRY."""
+
+    def sample_batch(self) -> dict[str, Tensor]:
+        """Returns {"inputs": (B,T,input_dim), "targets": (B,T,output_dim), "mask": (B,T,output_dim)}"""
+```
+
+**Available task generators** (in `neuralrnn.data.tasks.TASK_REGISTRY`):
+
+| Key | Task | Input | Output | Description |
+|-----|------|-------|--------|-------------|
+| `rdm` | Random Dot Motion | 1 | 1 | Integrate noisy coherence signal; report sign |
+| `romo` | Parametric Working Memory | 1 | 1 | Compare two frequencies across delay |
+| `raposo` | Multisensory Decision | 4 | 1 | Attend to visual/auditory/both modalities |
+| `dms` | Delayed Match-to-Sample | 2 | 1 | Judge if two sequential stimuli match |
+| `lr_mante` | Ctx Decision (low-rank) | 4 | 1 | Context-dependent integration of color/motion |
+| `mante` | Ctx Decision (latent circuit) | 6 | 2 | Context-dependent decision with 2 outputs |
+| `mante_short` | Ctx Decision (short variant) | 6 | 2 | Shorter version of Mante |
+| `siegel_miller` | Siegel-Miller Task | 6 | 2 | Classical context-dependent decision making |
+| `two_afc` | Two-Alternative Forced Choice | 1 | 1 | Simple binary choice |
+| `delay_match_to_sample` | DMS (latent circuit) | 2 | 1 | Match-to-sample with pre-sliced mask |
+| `parametric_wm` | Parametric WM (latent circuit) | 1 | 1 | Working memory with variable delay |
+
+**Usage**:
+```python
+from neuralrnn.data import CognitiveTaskDataset
+
+# Create from task registry
+ds = CognitiveTaskDataset.from_task("rdm", num_trials=800, seed=42)
+
+# Or construct directly from tensors
+ds = CognitiveTaskDataset(inputs=x, targets=y, mask=mask, conditions=[],
+                          task_name="custom", batch_size=32)
+```
+
 ### Registry & `load_dataset`
 
 **Module**: `neuralrnn.data.registry`
@@ -934,6 +1147,62 @@ class VariationalObjective(Objective):
     def __init__(self, kl_weight: float = 1.0, likelihood: str = "poisson"):
         """ELBO = reconstruction_nll - kl_weight * KL.
         Requires model.forward().extras to contain "rates" and optionally "kl"."""
+```
+
+### Loss Functions
+
+**Module**: `neuralrnn.losses`
+
+Reusable loss functions and metrics. All accept either raw `torch.Tensor` or `DynamicsModelOutput` (which delegates arithmetic ops to `.outputs`).
+
+#### `loss_mse`
+
+```python
+def loss_mse(output, target, mask) -> Tensor:
+    """Masked mean squared error loss.
+
+    Compatible with both raw tensors and DynamicsModelOutput.
+    Computes (output - target)^2 elementwise, applies the mask,
+    and normalizes per-trial.
+
+    Args:
+        output: (B, T, O) tensor or DynamicsModelOutput
+        target: (B, T, O) tensor
+        mask:   (B, T, 1) or (B, T, O) float/bool tensor
+
+    Returns:
+        scalar torch.Tensor
+    """
+```
+
+#### `accuracy_general`
+
+```python
+def accuracy_general(output, targets, mask) -> Tensor:
+    """Sign-based accuracy for binary decision tasks.
+
+    Only considers trials where targets are non-zero.
+    Decision is the sign of the masked mean output/target over
+    valid timesteps.
+
+    Args:
+        output:  (B, T, O) tensor or DynamicsModelOutput
+        targets: (B, T, O) tensor
+        mask:    (B, T, 1) or (B, T, O) float/bool tensor
+
+    Returns:
+        scalar torch.Tensor — fraction correct, or NaN if no valid trials
+    """
+```
+
+**Usage**:
+
+```python
+from neuralrnn.losses import loss_mse, accuracy_general
+
+# Compatible with both raw tensors and DynamicsModelOutput
+loss = loss_mse(model_output, y_val, mask_val)
+acc = accuracy_general(model_output, y_val, mask_val)
 ```
 
 ### Cross-Validation
@@ -1225,6 +1494,82 @@ def marble_embedding(pos, vel, **marble_kwargs):
 def neuralflow_analysis(spike_data, **kwargs):
     """neuralflow continuous-time latent flow analysis.
     See PORTING_GUIDE Recipe 8 for integration details."""
+```
+
+### Linear Algebra Utilities
+
+**Module**: `neuralrnn.analysis.linalg_utils`
+
+Model-agnostic linear algebra and trajectory utilities. All functions operate on numpy arrays or torch tensors — no dependency on specific model classes.
+
+| Function | Description |
+|----------|-------------|
+| `phi_prime(x)` | tanh derivative: `1 - tanh²(x)`, used in gain analysis |
+| `gram_schmidt(vecs)` | Classical Gram-Schmidt orthogonalization (numpy) |
+| `gram_schmidt_pt(mat)` | Row-wise Gram-Schmidt orthogonalization (torch, in-place) |
+| `gram_factorization(G)` | Factorize Gramian/covariance matrix into basis vectors |
+| `overlap_matrix(vecs)` | Pairwise inner-product overlap matrix of vectors |
+| `corrvecs(v, w)` | Cosine similarity between two vectors |
+| `project(v, subspace_vecs)` | Project vector onto a subspace |
+| `angle_vectors(v, w)` | Angle between two vectors (radians) |
+| `angle_vec_subsp(v, vecs)` | Angle between vector and subspace (radians) |
+| `flatten_trajectory(X)` | Reshape `(trials, time, dim)` → `(trials*time, dim)` |
+| `unflatten_trajectory(X_flat, n_trials)` | Reverse of `flatten_trajectory` |
+| `map_device(tensors, net)` | Move tensor(s) to same device as a network |
+
+### Population Structure Analysis
+
+**Module**: `neuralrnn.analysis.population_structure`
+
+Tools for extracting connectivity vectors and performing Gaussian mixture clustering on neuron feature spaces. Uses duck-typing on model attributes (`m`, `n`, `wi`, `wo`, `rank`, `input_size`, `output_size`).
+
+#### `make_vecs`
+
+```python
+def make_vecs(net) -> list[np.ndarray]:
+    """Extract connectivity vectors from a low-rank-like network.
+
+    Returns 2R + K + O vectors (each length N):
+      - R from columns of m, R from columns of n,
+      - K from rows of wi, O from columns of wo.
+
+    Args:
+        net: Model with attributes m (N,R), n (N,R), wi (K,N),
+             wo (N,O), rank, input_size, output_size.
+
+    Returns:
+        list of (N,) numpy arrays
+    """
+```
+
+#### `gmm_fit`
+
+```python
+def gmm_fit(neurons_fs, n_components, algo='bayes', n_init=50,
+            random_state=None) -> tuple[np.ndarray, object]:
+    """Fit a GMM to neuron feature vectors.
+
+    Args:
+        neurons_fs: list of (N,) arrays or (d, N) feature matrix
+        n_components: number of clusters
+        algo: 'em' (GaussianMixture) or 'bayes' (BayesianGaussianMixture)
+        n_init: number of EM initializations
+        random_state: seed
+
+    Returns:
+        labels: (N,) int array of cluster assignments
+        model: fitted sklearn mixture model
+    """
+```
+
+#### `compute_population_means` / `compute_population_covariances`
+
+```python
+def compute_population_means(X, labels) -> np.ndarray:
+    """(n_pops, d) mean feature vector per population."""
+
+def compute_population_covariances(X, labels) -> list[np.ndarray]:
+    """List of (d, d) covariance matrices per population."""
 ```
 
 ---

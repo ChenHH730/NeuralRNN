@@ -38,6 +38,10 @@ class TrainingArguments:
     dropout_sampling: str = "uniform"
     dropout_beta: float = 1.0           # softmax 温度（非 uniform 采样时控制集中度）
 
+    # —— 早停 & 最佳模型保存 ——
+    early_stop_loss: float | None = None   # 训练损失低于此值即停止
+    keep_best: bool = False               # 保留训练中损失最低的模型权重
+
     # —— 课程式 forcing（GTF / teacher forcing 退火，可选）——
     # 若 Objective 支持 alpha 退火，可由 Trainer 在训练中读取并更新
     anneal_forcing: bool = False

@@ -83,6 +83,32 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
         loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
         extra={"task_name": "parametric_wm"},
     ),
+    # Low-rank RNN tasks (Dubreuil et al. 2022 / Valente et al. 2022)
+    "rdm": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "rdm"},
+    ),
+    "romo": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "romo"},
+    ),
+    "raposo": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "raposo"},
+    ),
+    "dms": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "dms"},
+    ),
+    "lr_mante": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "lr_mante"},
+    ),
     # Tiny RNN：Bartolo Monkey 概率反转学习任务行为数据
     "bartolo_monkey": DatasetSpec(
         kind="behavioral",

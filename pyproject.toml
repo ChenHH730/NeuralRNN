@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "neuralrnn"
 version = "0.1.0.dev0"
-description = "认知神经科学 RNN 方法的统一框架：任务优化训练 + 可解释分析 + 动力学重构（transformers 风格）"
+description = "A unified framework for implementing RNN methods in cognitive neuroscience"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -13,12 +13,11 @@ authors = [{ name = "NeuralRNN contributors" }]
 keywords = ["RNN", "computational-neuroscience", "dynamical-systems",
             "dynamics-reconstruction", "interpretability", "PLRNN", "LFADS"]
 
-# —— 核心依赖 ——
 dependencies = [
     "torch>=2.0",
     "numpy>=1.23",
-    "scipy>=1.10",        # gaussian_filter1d / fft（D_H 指标）
-    "safetensors>=0.4",   # 统一权重存储
+    "scipy>=1.10",        
+    "safetensors>=0.4",   
     "neurogym>=0.0.1",
     "gym>=0.21",
     "matplotlib>=3.6",
@@ -30,7 +29,6 @@ dependencies = [
 [project.urls]
 Documentation = "docs/ARCHITECTURE.md"
 
-# —— src 布局：包根在 src/ ——
 [tool.hatch.build.targets.wheel]
 packages = ["src/neuralrnn"]
 

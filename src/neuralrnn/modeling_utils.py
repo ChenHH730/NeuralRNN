@@ -28,15 +28,93 @@ METADATA_FILE_NAME = "metadata.json"
 
 @dataclass
 class DynamicsModelOutput:
-    """统一模型输出容器（≈ transformers.ModelOutput）。可属性访问，也可 dict 解包。"""
+    """统一模型输出容器（≈ transformers.ModelOutput）。可属性访问，也可 dict 解包。
+
+    Supports arithmetic ops that delegate to the .outputs tensor for backward
+    compatibility with reference code that expects raw tensors from forward().
+    """
 
     outputs: torch.Tensor | None = None   # 读出 y_{1:T}     (B, T, output_dim)
     states: torch.Tensor | None = None    # 潜轨迹 z_{1:T}    (B, T, latent_dim)
     loss: torch.Tensor | None = None      # 若 forward 内算了损失
     extras: dict[str, Any] | None = None  # 模型特异输出（如 LFADS 后验）
 
-    def __getitem__(self, k):  # 允许 out["states"] 写法
-        return getattr(self, k)
+    def __getitem__(self, k):  # out["states"] or tensor indexing out[0, :, :]
+        if isinstance(k, str):
+            return getattr(self, k)
+        # Delegate to .outputs for tensor-like indexing
+        if self.outputs is not None:
+            return self.outputs[k]
+        raise KeyError(f"Cannot index {type(self).__name__} with {k}: outputs is None")
+
+    # ---- Arithmetic ops delegate to .outputs for backward compat ----
+    def __sub__(self, other):
+        if isinstance(other, DynamicsModelOutput):
+            return self.outputs - other.outputs
+        return self.outputs - other
+
+    def __rsub__(self, other):
+        return other - self.outputs
+
+    def __add__(self, other):
+        if isinstance(other, DynamicsModelOutput):
+            return self.outputs + other.outputs
+        return self.outputs + other
+
+    def __radd__(self, other):
+        return other + self.outputs
+
+    def __mul__(self, other):
+        if isinstance(other, DynamicsModelOutput):
+            return self.outputs * other.outputs
+        return self.outputs * other
+
+    def __rmul__(self, other):
+        return other * self.outputs
+
+    def __truediv__(self, other):
+        if isinstance(other, DynamicsModelOutput):
+            return self.outputs / other.outputs
+        return self.outputs / other
+
+    def __rtruediv__(self, other):
+        return other / self.outputs
+
+    def sign(self):
+        return self.outputs.sign()
+
+    def squeeze(self, dim=None):
+        return self.outputs.squeeze(dim) if dim is not None else self.outputs.squeeze()
+
+    def mean(self, *args, **kwargs):
+        return self.outputs.mean(*args, **kwargs)
+
+    def sum(self, *args, **kwargs):
+        return self.outputs.sum(*args, **kwargs)
+
+    def pow(self, n):
+        return self.outputs.pow(n)
+
+    def detach(self):
+        """Return a new DynamicsModelOutput with detached outputs and states."""
+        return DynamicsModelOutput(
+            outputs=self.outputs.detach() if self.outputs is not None else None,
+            states=self.states.detach() if self.states is not None else None,
+            loss=self.loss,
+            extras=self.extras,
+        )
+
+    def detach_(self):
+        """Detach outputs and states in-place."""
+        if self.outputs is not None:
+            self.outputs = self.outputs.detach()
+        if self.states is not None:
+            self.states = self.states.detach()
+        return self
+
+    @property
+    def device(self):
+        return self.outputs.device if self.outputs is not None else None
 
 
 class NeuralDynamicsModel(nn.Module):

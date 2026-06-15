@@ -28,8 +28,8 @@ _LAZY_MODULES: dict[str, str] = {
     "alrnn": "neuralrnn.models.plrnn.modeling_plrnn",
     "latent_circuit": "neuralrnn.models.latent_circuit.modeling_latent_circuit",
     "tiny_rnn": "neuralrnn.models.tiny_rnn.modeling_tiny_rnn",
+    "lowrank_rnn": "neuralrnn.models.lowrank.modeling_lowrank",
     # 移植后追加：
-    # "lowrank_rnn": "neuralrnn.models.lowrank.modeling_lowrank",
     # "lfads": "neuralrnn.models.lfads.modeling_lfads",
 }
 

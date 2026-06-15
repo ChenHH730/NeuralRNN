@@ -1,7 +1,27 @@
-"""可解释性分析层：不动点 / 线性化 / 向量场 / 降维 / 重构指标 / Lyapunov / 流形 / 线吸引子。
+"""可解释性分析层：不动点 / 线性化 / 向量场 / 降维 / 重构指标 / Lyapunov / 流形 / 线吸引子 / 群体结构。
 
 铁律：本层只通过模型公共契约工作，不 import 任何具体模型类（见 PORTING_GUIDE 契约D）。
 """
+from .linalg_utils import (
+    phi_prime,
+    gram_schmidt,
+    gram_schmidt_pt,
+    gram_factorization,
+    overlap_matrix,
+    corrvecs,
+    project,
+    angle_vectors,
+    angle_vec_subsp,
+    flatten_trajectory,
+    unflatten_trajectory,
+    map_device,
+)
+from .population_structure import (
+    make_vecs,
+    gmm_fit,
+    compute_population_means,
+    compute_population_covariances,
+)
 from .fixed_points import (
     find_fixed_points,
     NumericFixedPointFinder,
@@ -46,39 +66,68 @@ from .line_attractor import (
 )
 
 __all__ = [
+    # -- linalg utils --
+    "phi_prime",
+    "gram_schmidt",
+    "gram_schmidt_pt",
+    "gram_factorization",
+    "overlap_matrix",
+    "corrvecs",
+    "project",
+    "angle_vectors",
+    "angle_vec_subsp",
+    "flatten_trajectory",
+    "unflatten_trajectory",
+    "map_device",
+    # -- population structure --
+    "make_vecs",
+    "gmm_fit",
+    "compute_population_means",
+    "compute_population_covariances",
+    # -- fixed points --
     "find_fixed_points",
     "NumericFixedPointFinder",
     "ScipyFixedPointFinder",
     "AnalyticPLRNNFixedPointFinder",
     "FixedPoint",
     "FixedPointSet",
+    # -- linearization --
     "linearize",
     "classify_fixed_point",
     "dominant_direction",
     "LinearizationResult",
+    # -- vector field --
     "compute_vector_field",
     "VectorField",
+    # -- dimensionality --
     "fit_pca",
     "collect_states",
     "PCAResult",
+    # -- lyapunov --
     "max_lyapunov_exponent",
+    # -- stsp metrics --
     "state_space_divergence",
     "state_space_divergence_binning",
     "state_space_divergence_gmm",
     "power_spectrum_error",
     "hellinger_distance",
+    # -- manifold --
     "trajectories_to_pos_vel",
+    # -- connectivity --
     "analyze_connectivity",
     "ConnectivityResult",
+    # -- perturbation --
     "analyze_perturbation",
     "latent_to_rnn_perturbation",
     "apply_perturbation",
     "compute_choice",
     "PerturbationSpec",
     "PerturbationResult",
+    # -- psychometric --
     "compute_psychometric",
     "PsychometricCurve",
     "PsychometricResult",
+    # -- line attractor --
     "find_line_attractor_endpoints",
     "walk_line_attractor",
     "compute_line_attractor",

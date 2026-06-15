@@ -18,6 +18,11 @@ from .mante_short_task import generate_trials as mante_short_trials
 from .two_afc_task import generate_trials as two_afc_trials
 from .delay_match_to_sample_task import generate_trials as delay_match_to_sample_trials
 from .parametric_wm_task import generate_trials as parametric_wm_trials
+from .rdm_task import generate_trials as rdm_trials
+from .romo_task import generate_trials as romo_trials
+from .raposo_task import generate_trials as raposo_trials
+from .dms_task import generate_trials as dms_trials
+from .lr_mante_task import generate_trials as lr_mante_trials
 
 TASK_REGISTRY = {
     "siegel_miller": siegel_miller_trials,
@@ -26,6 +31,11 @@ TASK_REGISTRY = {
     "two_afc": two_afc_trials,
     "delay_match_to_sample": delay_match_to_sample_trials,
     "parametric_wm": parametric_wm_trials,
+    "rdm": rdm_trials,
+    "romo": romo_trials,
+    "raposo": raposo_trials,
+    "dms": dms_trials,
+    "lr_mante": lr_mante_trials,
 }
 
 __all__ = [
@@ -36,4 +46,9 @@ __all__ = [
     "two_afc_trials",
     "delay_match_to_sample_trials",
     "parametric_wm_trials",
+    "rdm_trials",
+    "romo_trials",
+    "raposo_trials",
+    "dms_trials",
+    "lr_mante_trials",
 ]
