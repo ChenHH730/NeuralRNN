@@ -8,11 +8,13 @@ Every notebook is to implement a proposed method from previous works, with the s
 | [02_plrnn_reconstruction_paradigmB.ipynb](01_plrnn_reconstruction_paradigmB.ipynb) | Reconstruction | Durstewitz et al. (2023) | `TeacherForcingObjective` · `find_fixed_points` · `max_lyapunov_exponent`|
 | [03_custom_pipeline.ipynb](03_custom_pipeline.ipynb) | Task | None | `CustomDataset.from_arrays` · `SupervisedObjective`|
 | [04_EIRNN_paradigmA.ipynb](04_EIRNN_paradigmA.ipynb) | Task | Song et al. (2016) | `ei_rnn` |
-| [05_latent_circuit_paradigmA.ipynb](05_latent_circuit_paradigmA.ipynb) | Reconstruction | Langdon & Engel (2025) | `latent_circuit` · `LatentCircuitObjective` · `connection analysis` |
-| [06_tiny_RNN_paradigmB.ipynb](06_tiny_RNN_paradigmB.ipynb) | Reconstruction | Ji-An et al. (2025) | `tiny_rnn` · `BehavioralObjective` |
+| [05_latent_circuit_paradigmB.ipynb](05_latent_circuit_paradigmB.ipynb) | Reconstruction | Langdon & Engel (2025) | `latent_circuit` · `LatentCircuitObjective` · `connection analysis` |
+| [06_tiny_RNN_paradigmB.ipynb](06_tiny_RNN_paradigmB.ipynb) | Behavioral Fitting | Ji-An et al. (2025) | `tiny_rnn` · `BehavioralObjective` · `output_h0=True` · original color scheme |
+| [06a_test_gru.ipynb](06a_test_gru.ipynb) | Behavioral Fitting | Ji-An et al. (2025) | architecture validation with original training style + float64 experiment |
 | [07_lowrank_RNN_paradigmA.ipynb](07_lowrank_RNN_paradigmA.ipynb) | Task | Dubreuil et al. (2022) | `lowrank_rnn` · `vector field` · `GMM clustering` |
+| [08_lowrank_RNN_paradigmB.ipynb](08_lowrank_RNN_paradigmB.ipynb) | Reconstruction | Valente et al. (2022) | `lowrank_rnn` · LINT |
 
-## ongoing notebook (配方见 PORTING_GUIDE)
+## ongoing notebook (see PORTING_GUIDE)
 
 - LFADS：用 `VariationalObjective` 做尖峰序列的潜动力推断（配方5）
 

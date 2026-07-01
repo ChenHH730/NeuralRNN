@@ -1,7 +1,7 @@
 # Durstewitz lab: shallowPLRNN Dynamical Systems Reconstruction (DSR)
 
 > **Paradigm**: B (dynamical systems reconstruction)
-> **Original source**: CNS 2023 tutorial (`CNS2023_tutorial.ipynb`), Durstewitz lab DSR series
+> **Original source**: CNS 2023 tutorial, Durstewitz lab DSR series
 > **Framework target**: `models/plrnn` + `analysis` (analytic fixed points / Lyapunov / D_stsp / D_H)
 > **Status**: ✅ Reference implementation (the most complete Paradigm B + analytic analysis example in the framework)
 

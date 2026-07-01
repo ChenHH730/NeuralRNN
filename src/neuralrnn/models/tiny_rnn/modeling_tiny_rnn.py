@@ -85,6 +85,11 @@ class TinyRNNModel(NeuralDynamicsModel):
         self._readout_FC = config.readout_FC
         self._output_h0 = config.output_h0
 
+        # Cast the whole model to the requested dtype (the original tinyRNN
+        # code uses .double() / float64). This must happen after all submodules
+        # and buffers have been registered.
+        self.to(config.torch_dtype)
+
     def init_state(self, batch_size: int, device: str | torch.device = "cpu") -> torch.Tensor:
         """Initial hidden state z_0: (B, M)."""
         return self.h0.to(device).expand(batch_size, -1).contiguous()

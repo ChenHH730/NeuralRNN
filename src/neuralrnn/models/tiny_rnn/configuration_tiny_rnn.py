@@ -7,6 +7,8 @@ Reference:
 """
 from __future__ import annotations
 
+import torch
+
 from ...configuration_utils import NeuralRNNConfig
 
 
@@ -30,6 +32,8 @@ class TinyRNNConfig(NeuralRNNConfig):
         readout_FC: If True, use fully-connected readout; if False, diagonal
         trainable_h0: If True, initial hidden state is a learned parameter
         l1_weight:  L1 regularization coefficient on recurrent weights
+        dtype:      Model weight dtype, "float32" or "float64". The original
+                    tinyRNN code uses float64 (``.double()``). Default "float32".
     """
 
     model_type = "tiny_rnn"
@@ -44,6 +48,7 @@ class TinyRNNConfig(NeuralRNNConfig):
         trainable_h0: bool = False,
         output_h0: bool = False,
         l1_weight: float = 1e-5,
+        dtype: str = "float32",
         **kwargs,
     ) -> None:
         super().__init__(input_dim=input_dim, latent_dim=latent_dim,
@@ -53,3 +58,13 @@ class TinyRNNConfig(NeuralRNNConfig):
         self.trainable_h0 = trainable_h0
         self.output_h0 = output_h0
         self.l1_weight = l1_weight
+        self.dtype = dtype
+        self._validate_dtype()
+
+    def _validate_dtype(self):
+        if self.dtype not in ("float32", "float64"):
+            raise ValueError(f"TinyRNNConfig.dtype must be 'float32' or 'float64', got {self.dtype}")
+
+    @property
+    def torch_dtype(self):
+        return torch.float32 if self.dtype == "float32" else torch.float64

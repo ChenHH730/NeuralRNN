@@ -22,7 +22,7 @@ $$
 > 它由 `Objective` 决定。分析（不动点、Lyapunov……）只是对 $F_\theta$ 的几何/谱研究，
 > 因此只要拿到 `recurrence` 就够了，不必知道模型是哪一类。
 
-### 两类典型 $F$
+### Example
 
 **连续时间 RNN（CTRNN，范式A）** 由 ODE 欧拉离散得到：
 

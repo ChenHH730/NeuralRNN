@@ -75,16 +75,19 @@ Cross-entropy loss (negative log-likelihood) on action predictions:
 L = -Σ_t log p_θ(a_t | a_{1:t-1}, s_{1:t-1}, r_{1:t-1})
 ```
 
+When `output_h0=True`, the model produces `T+1` logits (including a readout of the initial hidden state). The loss is computed on the first `T` logits, matching the original `scores[:-1]` slicing.
+
 ### 4.2 Regularization
 
 - **L1 regularization** on recurrent weights (weight_hh): `L_total = L + λ ||W_hh||_1`
   - Typical λ = 1e-5
   - Only on recurrent weights, not input/output weights
+  - In NeuralRNN, `BehavioralObjective` automatically adds this term when `config.l1_weight > 0` and the model exposes `get_l1_loss()`.
 - **Early stopping**: patience = 200 epochs on validation loss
 
 ### 4.3 Optimization
 
-- **Optimizer**: Adam, lr = 0.005
+- **Optimizer**: AdamW (original implementation), lr = 0.005, weight_decay = 0
 - **Gradient clipping**: max norm = 1.0
 - **Max epochs**: 2000
 
@@ -98,7 +101,11 @@ The original paper uses **nested cross-validation**:
 
 This separates training, validation, and evaluation to prevent overfitting given the large parameter count difference between RNNs (40-80 params for 1-2 units) and cognitive models (2-10 params).
 
-**Note**: Our notebook simplifies to a single train/test split (80/20) for demonstration.
+**Note**: The main tutorial notebook (`06_tiny_RNN_paradigmB.ipynb`) uses a single train/test split (80/20) for demonstration. For a full nested-CV reproduction see `test/06b_test_nested_cv.ipynb`.
+
+### 4.5 Reproduction Notes
+
+The single most important detail for reproducing the original dynamics is **`output_h0=True`**. With this flag, the initial hidden state is read out and penalized by the loss, pulling `h0` toward a state that predicts the first action. This shapes the state-space landscape into the form reported in the paper. With `output_h0=False`, the network can still reach a low-loss solution, but the learned dynamics often differ from the original. The default pipeline uses float32; the original code uses float64, which may account for a small remaining NLL gap (~0.01–0.05).
 
 ### 4.5 Knowledge Distillation (Human Tasks)
 
@@ -199,6 +206,11 @@ separately for each trial type. Regression coefficients summarize:
 | `behavior_cv_training_config_combination` | `train/cv.py` |
 | Cross-entropy + L1 loss | `train/objectives/behavioral.py` BehavioralObjective |
 | `plot_all_models_value_change` | Notebook inline + `analysis/` |
+
+### Porting Notes
+
+- **Input format alignment**: The original `BaseTwoStepDataset._behav_to_tensor()` with `output_h0=True` uses the **current trial's** `[action, stage2, reward]` as input, while the target is also the current trial's action. Because the model prepends the `h0` readout to the output sequence, the effective prediction is `readout(h0)` → `action_0`, `readout(h_t)` → `action_t`. NeuralRNN's `BartoloMonkeyDataset` initially used a shifted convention (`input[t] = previous trial's observation`), which raised test NLL by ~0.044 because the last observation was never processed. The dataset now defaults to the original current-trial convention and exposes `input_format='shifted'` for backward compatibility.
+- **`output_h0=True` is essential** for reproducing the original dynamics, as it constrains the initial hidden state to predict the first action.
 
 ## 8. Key Results
 

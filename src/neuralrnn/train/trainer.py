@@ -76,6 +76,15 @@ class Trainer:
         self._best_loss: float = float('inf')
         self._best_state_dict: dict | None = None
 
+        # Metric-based early stopping / best model (requires eval_fn + eval_every)
+        self._best_metric = float('inf')
+        self._best_metric_sign = 1.0
+        self._eval_no_improve = 0
+        self._best_state_dict_eval: dict | None = None
+        if self.args.eval_metric is not None:
+            self._best_metric_sign = -1.0 if self.args.greater_is_better else 1.0
+            self._best_metric = float('inf')
+
     @staticmethod
     def _compute_participation(states: torch.Tensor, q: float = 0.9) -> torch.Tensor:
         """Compute per-neuron participation metric (quantile + std of |states|).
@@ -198,11 +207,37 @@ class Trainer:
                       "  ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
                 self.model.train()
 
+                # Metric-based early stopping / best model
+                if self.args.eval_metric is not None:
+                    if self.args.eval_metric not in metrics:
+                        raise ValueError(f"eval_metric '{self.args.eval_metric}' not found in eval_fn output. "
+                                         f"Available keys: {list(metrics.keys())}")
+                    current_metric = float(metrics[self.args.eval_metric])
+                    signed_current = self._best_metric_sign * current_metric
+                    tol = 1e-6
+                    if signed_current < self._best_metric - tol:
+                        self._best_metric = signed_current
+                        import copy
+                        self._best_state_dict_eval = copy.deepcopy(self.model.state_dict())
+                        self._eval_no_improve = 0
+                    else:
+                        self._eval_no_improve += 1
+
+                    if (self.args.early_stopping_patience is not None
+                            and self._eval_no_improve >= self.args.early_stopping_patience):
+                        print(f"[eval ] early stop at step {step}: no improvement for "
+                              f"{self._eval_no_improve} evals")
+                        break
+
             if self.args.save_every and step > 0 and step % self.args.save_every == 0:
                 self.save_checkpoint(step)
 
         # ── Restore best model ──
-        if self.args.keep_best and self._best_state_dict is not None:
+        if self.args.eval_metric is not None:
+            if (self.args.keep_best or self.args.early_stopping_patience is not None) \
+                    and self._best_state_dict_eval is not None:
+                self.model.load_state_dict(self._best_state_dict_eval)
+        elif self.args.keep_best and self._best_state_dict is not None:
             self.model.load_state_dict(self._best_state_dict)
 
         return self.history

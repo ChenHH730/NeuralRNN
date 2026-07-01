@@ -64,18 +64,27 @@ class BartoloMonkeyDataset(BaseDataset):
     def __init__(self, data_dir: str | Path, animal_name: str = 'V',
                  filter_block_type: str = 'both',
                  block_truncation: tuple[int, int] = (10, 70),
-                 verbose: bool = False):
+                 verbose: bool = False,
+                 dtype: torch.dtype = torch.float32,
+                 input_format: str = 'current'):
         super().__init__()
         self.data_dir = Path(data_dir)
         self.animal_name = animal_name
         self.filter_block_type = filter_block_type
         self.block_truncation = block_truncation
+        self.dtype = dtype
+        if input_format not in ('current', 'shifted'):
+            raise ValueError(f"input_format must be 'current' or 'shifted', got {input_format}")
+        self.input_format = input_format
 
         # Load raw behavioral data
         self._raw_behav = self._load_sessions(verbose)
 
         # Convert to tensors (batch-first)
         self._build_tensors()
+
+        self.input_dim = 3
+        self.output_dim = 2
 
     def _load_sessions(self, verbose: bool = False) -> dict:
         """Load all sessions for the specified animal."""
@@ -160,18 +169,27 @@ class BartoloMonkeyDataset(BaseDataset):
     def _build_tensors(self):
         """Convert raw behavioral data to batch-first tensors.
 
-        Data format for behavioral prediction:
-            input[t] = [action[t-1], stage2[t-1], reward[t-1]]  (previous trial's observed data)
-            target[t] = action[t]                                (current trial's action)
+        We support two input conventions:
 
-        For t=0 (first trial), input is zeros (no previous trial).
-        This matches the original tinyRNN convention where the model predicts
-        the current action from the history of past observations.
+        * ``input_format='current'`` (default, matches original tinyRNN):
+            input[t] = [action[t], stage2[t], reward[t]]
+            target[t] = action[t]
+          When the model uses ``output_h0=True``, the model prepends the h0
+          readout so that the effective alignment is:
+            readout(h0)       -> action[0]
+            readout(h_{t+1})  -> action[t+1], where h_{t+1} = GRU(input[t], h_t)
+          This is the convention used in the original tinyRNN codebase.
+
+        * ``input_format='shifted'`` (legacy NeuralRNN convention):
+            input[t] = [action[t-1], stage2[t-1], reward[t-1]]
+            target[t] = action[t]
+          with input[0] = [0, 0, 0]. This was the initial port convention but
+          does not reproduce original tinyRNN results because the last trial's
+          observation is never fed into the network.
         """
         n_blocks = len(self._raw_behav['action'])
         T = len(self._raw_behav['action'][0])
 
-        # Build shifted input: [action[t-1], stage2[t-1], reward[t-1]]
         action = np.zeros((n_blocks, T))
         stage2 = np.zeros((n_blocks, T))
         reward = np.zeros((n_blocks, T))
@@ -181,11 +199,16 @@ class BartoloMonkeyDataset(BaseDataset):
         for b in range(n_blocks):
             act_b = self._raw_behav['action'][b]
             rew_b = self._raw_behav['reward'][b]
-            # Shift by 1: input[t] = previous trial's data
-            action[b, 1:] = act_b[:-1]
-            stage2[b, 1:] = act_b[:-1]  # stage2 == action in one-step task
-            reward[b, 1:] = rew_b[:-1]
-            # target is the CURRENT trial's action
+            if self.input_format == 'current':
+                # Match original tinyRNN: current observation as input.
+                action[b] = act_b
+                stage2[b] = act_b  # stage2 == action in one-step task
+                reward[b] = rew_b
+            else:
+                # Legacy shifted convention: previous observation as input.
+                action[b, 1:] = act_b[:-1]
+                stage2[b, 1:] = act_b[:-1]
+                reward[b, 1:] = rew_b[:-1]
             trial_type[b] = self._raw_behav['trial_type'][b]
 
         # Store raw actions for target construction
@@ -193,13 +216,13 @@ class BartoloMonkeyDataset(BaseDataset):
         for b in range(n_blocks):
             raw_action[b] = self._raw_behav['action'][b]
 
-        # Input: shifted [action_{t-1}, stage2_{t-1}, reward_{t-1}]
+        # Input: [action, stage2, reward]
         self._inputs = torch.tensor(
-            np.stack([action, stage2, reward], axis=-1), dtype=torch.float32
+            np.stack([action, stage2, reward], axis=-1), dtype=self.dtype
         )  # (B, T, 3)
         # Target: current trial's action
         self._targets = torch.tensor(raw_action, dtype=torch.long)  # (B, T)
-        self._mask = torch.tensor(mask, dtype=torch.float32)        # (B, T)
+        self._mask = torch.tensor(mask, dtype=self.dtype)        # (B, T)
         self._trial_type = torch.tensor(trial_type, dtype=torch.long)  # (B, T)
 
         self.n_blocks = n_blocks
@@ -209,7 +232,10 @@ class BartoloMonkeyDataset(BaseDataset):
     def load(cls, data_dir: str | None = None, animal_name: str = 'V',
              filter_block_type: str = 'both',
              block_truncation: tuple[int, int] = (10, 70),
-             verbose: bool = False, **kwargs) -> "BartoloMonkeyDataset":
+             verbose: bool = False,
+             dtype: torch.dtype = torch.float32,
+             input_format: str = 'current',
+             **kwargs) -> "BartoloMonkeyDataset":
         """Load the BartoloMonkey dataset.
 
         If data_dir is None or doesn't contain .mat files, automatically downloads
@@ -222,6 +248,10 @@ class BartoloMonkeyDataset(BaseDataset):
             filter_block_type: 'both', 'what', or 'where'
             block_truncation: (start, end) trial indices
             verbose: Print loading info
+            dtype: torch dtype for input and mask tensors (float32 or float64).
+                The original tinyRNN code uses float64.
+            input_format: 'current' (default, matches original tinyRNN) or
+                'shifted' (legacy NeuralRNN convention).
 
         Returns:
             BartoloMonkeyDataset instance
@@ -257,7 +287,7 @@ class BartoloMonkeyDataset(BaseDataset):
             data_dir = cache_dir
 
         return cls(data_dir, animal_name, filter_block_type,
-                   block_truncation, verbose)
+                   block_truncation, verbose, dtype=dtype, input_format=input_format)
 
     @staticmethod
     def _download_from_mendeley(files_api: str, cache_dir: Path, verbose: bool = False):

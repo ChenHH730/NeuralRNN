@@ -18,13 +18,23 @@ from ...modeling_utils import NeuralDynamicsModel
 
 
 class BehavioralObjective(Objective):
-    """预测下一步动作的负对数似然。readout 输出动作 logits。"""
+    """预测下一步动作的负对数似然。readout 输出动作 logits。
+
+    支持 tiny_rnn 的 ``output_h0=True`` 配置：当模型输出长度比 target 多 1 时，
+    自动取 ``logits[:, :-1]`` 与 target 对齐（匹配原项目 ``scores[:-1]``）。
+    若 config 中存在 ``l1_weight`` 且模型提供 ``get_l1_loss()``，则将该 L1 项加入 loss。
+    """
 
     def compute_loss(self, model: NeuralDynamicsModel, batch):
         out = model(batch["inputs"])
-        logits = out.outputs                 # (B,T,n_actions)
-        target = batch["targets"].long()     # (B,T)
+        logits = out.outputs                 # (B, T or T+1, n_actions)
+        target = batch["targets"].long()     # (B, T)
         mask = batch.get("mask")
+
+        # Handle output_h0=True: outputs include readout of initial hidden state.
+        output_h0 = getattr(model.config, "output_h0", False)
+        if output_h0 and logits.shape[1] == target.shape[1] + 1:
+            logits = logits[:, :-1]
 
         B, T, C = logits.shape
         nll = F.cross_entropy(logits.reshape(B * T, C),
@@ -34,4 +44,15 @@ class BehavioralObjective(Objective):
             loss = (nll * m).sum() / m.sum().clamp_min(1.0)
         else:
             loss = nll.mean()
-        return loss, {"loss": loss.item(), "nll": loss.item()}
+
+        logs = {"loss": loss.item(), "nll": loss.item()}
+
+        # Optional L1 regularization on recurrent weights (tiny_rnn).
+        l1_weight = getattr(model.config, "l1_weight", 0.0)
+        if l1_weight > 0 and hasattr(model, "get_l1_loss"):
+            l1 = model.get_l1_loss()
+            loss = loss + l1_weight * l1
+            logs["l1"] = l1.item()
+            logs["loss"] = loss.item()
+
+        return loss, logs

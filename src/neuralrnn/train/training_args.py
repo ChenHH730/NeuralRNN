@@ -39,8 +39,12 @@ class TrainingArguments:
     dropout_beta: float = 1.0           # softmax 温度（非 uniform 采样时控制集中度）
 
     # —— 早停 & 最佳模型保存 ——
-    early_stop_loss: float | None = None   # 训练损失低于此值即停止
+    early_stop_loss: float | None = None   # 训练损失低于此值即停止（与 eval_metric 二选一）
     keep_best: bool = False               # 保留训练中损失最低的模型权重
+    # 基于验证指标的早停 / 最佳模型（需要传入 eval_fn 且 eval_every > 0）
+    eval_metric: str | None = None         # eval_fn 返回 dict 中用于早停的 key
+    greater_is_better: bool = False        # eval_metric 是否越大越好
+    early_stopping_patience: int | None = None  # 连续多少次 eval 无改善则停止；None 表示不启用
 
     # —— 课程式 forcing（GTF / teacher forcing 退火，可选）——
     # 若 Objective 支持 alpha 退火，可由 Trainer 在训练中读取并更新

@@ -15,7 +15,7 @@
 5. [Built-In Models](#5-built-in-models)
    - [CTRNN Family (Paradigm A)](#ctrnn-family-paradigm-a)
    - [PLRNN Family (Paradigm B)](#plrnn-family-paradigm-b)
-   - [Lowrank RNN Model (Paradigm A)](#lowrank-rnn-model-paradigm-a)
+   - [Lowrank RNN Model (Paradigm A/B)](#lowrank-rnn-model-paradigm-ab)
    - [Latent Circuit Model (Paradigm A)](#latent-circuit-model-paradigm-a)
    - [Tiny RNN Model (Paradigm B)](#tiny-rnn-model-paradigm-b--behavioral-fitting)
 6. [Data Layer](#6-data-layer)
@@ -461,11 +461,15 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
 
 `DendPLRNNModel` and `ALRNNModel` are placeholders that inherit from `ShallowPLRNNModel`.
 
-### Lowrank RNN Model (Paradigm A)
+### Lowrank RNN Model (Paradigm A/B)
 
 **Module**: `neuralrnn.models.lowrank`
 
 Low-rank recurrent neural network where the recurrent connectivity matrix is factorized as $W^{rec} = m \\cdot n^T / N$, constraining dynamics to a low-dimensional subspace spanned by columns of $m$. Ported from Dubreuil et al. (2022) *Nature Neuroscience* and Valente et al. (2022) *NeurIPS*.
+
+The same `LowrankRNNModel` class is used for both **Paradigm A** (task-optimized training, `notebook/07_lowrank_RNN_paradigmA.ipynb`) and **Paradigm B** (LINT inference from full-rank trajectories, `notebook/08_lowrank_RNN_paradigmB.ipynb`). For Paradigm B the full-rank "teacher" network and the LINT training loop are implemented notebook-locally in `08`: the reference `FullRankRNN` keeps separate membrane potentials and firing rates, uses `scale_by_hidden_size=False`, and has per-channel input/output scaling, all of which differ from the existing `CTRNNModel`; LINT fitting also requires a two-phase objective (identity readout trajectory regression followed by readout replacement) that does not map onto the generic `Trainer` + `SupervisedObjective` task pipeline.
+
+A companion notebook, `notebook/08b_lowrank_RNN_paradigmB.ipynb`, demonstrates that LINT *can* be performed with the standard `Trainer` + `SupervisedObjective(regression)` when the teacher is the framework's own `CTRNNModel`: set `output_dim = latent_dim`, freeze the readout to the identity (`wo = N \cdot I`), and pass the teacher firing-rate trajectories as targets. The notebook now reproduces the full downstream analysis from `08_lowrank_RNN_paradigmB.ipynb` (rank scan, population clustering, connectivity overlap, PCA/TDR comparisons, inactivation experiments, $\kappa_1$ trajectories, and gain distributions) using the rank-1 fitted network. No framework modifications are needed.
 
 **Motivation**: Unlike full-rank RNNs where $W^{rec} \\in \\mathbb{R}^{N \\times N}$ has $N^2$ parameters, a low-rank RNN with rank $R \\ll N$ has only $2NR$ recurrent parameters. This:
 - Makes the network's computation **transparent**: activity projected onto the $R$ columns of $m$ reveals the low-dimensional dynamics
@@ -607,11 +611,15 @@ model2 = LowrankRNNModel.from_pretrained("models/lowrank_rdm/")
   `gmm_fit()`, `make_vecs()`, `pop_scatter_linreg()`, `overlap_matrix()`,
   `get_lower_tri_heatmap()`, `psychometric_matrices_mante()`) are defined locally
   in the notebook to keep the framework generic.
-- `to_support_net()` still depends on the reference project's `SupportLowRankRNN` class
-  (not yet ported to neuralrnn).
+- `to_support_net()` is now a stub in the notebook; the original `SupportLowRankRNN`
+  class has not been ported to neuralrnn, so the notebook contains no reference-project
+  imports.
 - `forward(return_dynamics=True)` returns a raw `(output_tensor, trajectories_tensor)` tuple.
 - `forward(return_dynamics=False)` (default) returns `DynamicsModelOutput`.
 - Tensors are made contiguous before saving to avoid safetensors errors.
+- `hidden_size`, `input_size`, `output_size`, `rank`, `alpha`, `noise_std` and the
+  alias `non_linearity` are exposed for backward compatibility with reference analysis code.
+- `print(model)` now shows config fields and parameter shapes.
 
 ---
 
@@ -707,7 +715,7 @@ class TinyRNNModel(NeuralDynamicsModel):
     def get_l1_loss(self) -> Tensor: ...
 ```
 
-**Note**: Input is batch-first `(B, T, input_dim)`. The input at each trial is the **previous** trial's `[action, stage2, reward]`, and the target is the **current** trial's action. This prevents data leakage.
+**Note**: Input is batch-first `(B, T, input_dim)`. With `output_h0=True` (matching the original tinyRNN implementation), the input at each trial is the **current** trial's `[action, stage2, reward]`, and the target is the **current** trial's action. Because the model prepends a readout of the initial hidden state `h0`, the effective alignment is `readout(h0)` → `action_0` and `readout(h_t)` → `action_t`. The legacy shifted-input convention (`input[t] = previous trial's observation`) is available via `input_format='shifted'` but performs worse with `output_h0=True` because the last observation is never fed into the network.
 
 ---
 
@@ -1053,6 +1061,14 @@ class TrainingArguments:
     forcing_start: float = 1.0
     forcing_end: float = 0.0
 
+    # Early stopping & best-model saving
+    early_stop_loss: float | None = None   # Stop when training loss drops below this
+    keep_best: bool = False                # Restore lowest training-loss checkpoint
+    # Metric-based early stopping (requires eval_fn + eval_every)
+    eval_metric: str | None = None         # Key in eval_fn dict to track
+    greater_is_better: bool = False        # Whether eval_metric is maximized
+    early_stopping_patience: int | None = None  # Eval checks without improvement before stop
+
     extra: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict: ...
@@ -1137,7 +1153,15 @@ def generalized_teacher_forcing(z_pred, z_obs, alpha) -> Tensor:
 ```python
 class BehavioralObjective(Objective):
     """Next-action NLL for behavioral fitting. Standard batch:
-    {"inputs": (B,T,input_dim), "targets": (B,T), "mask": (B,T)|None}"""
+    {"inputs": (B,T,input_dim), "targets": (B,T), "mask": (B,T)|None}
+
+    Supports output_h0=True models: if model.config.output_h0 is True and
+    outputs.shape[1] == targets.shape[1] + 1, logits are sliced to logits[:, :-1]
+    before computing cross-entropy (matching original tinyRNN scores[:-1]).
+
+    Also adds L1 regularization automatically when model.config.l1_weight > 0
+    and the model provides get_l1_loss().
+    """
 ```
 
 #### `VariationalObjective` (LFADS)

@@ -104,10 +104,24 @@ class LowrankRNNModel(NeuralDynamicsModel):
         self._define_proxy_parameters()
 
     def extra_repr(self) -> str:
-        """Show key model info (like other nn.Modules)."""
-        return (f"input_dim={self.config.input_dim}, latent_dim={self.config.latent_dim}, "
-                f"output_dim={self.config.output_dim}, rank={self.config.rank}, "
-                f"alpha={self.alpha}, noise_std={self.noise_std}")
+        """Show key model info and parameter shapes."""
+        lines = [
+            f"input_dim={self.config.input_dim}, latent_dim={self.config.latent_dim}, "
+            f"output_dim={self.config.output_dim}, rank={self.config.rank}, "
+            f"alpha={self.alpha}, noise_std={self.noise_std}",
+            f"  (m): Parameter ({self.config.latent_dim}, {self.config.rank})",
+            f"  (n): Parameter ({self.config.latent_dim}, {self.config.rank})",
+            f"  (wi): Parameter ({self.config.input_dim}, {self.config.latent_dim})",
+            f"  (si): Parameter ({self.config.input_dim})",
+            f"  (wo): Parameter ({self.config.latent_dim}, {self.config.output_dim})",
+            f"  (so): Parameter ({self.config.output_dim})",
+            f"  (b): Parameter ({self.config.latent_dim})",
+            f"  (h0): Parameter ({self.config.latent_dim})",
+        ]
+        return "\n".join(lines)
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(\n" + self.extra_repr() + "\n)"
 
     def reset_parameters(self):
         """Initialize parameters matching the reference LowRankRNN."""
