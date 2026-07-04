@@ -102,6 +102,15 @@ class LowrankRNNModel(NeuralDynamicsModel):
 
         self.reset_parameters()
         self._define_proxy_parameters()
+        self.apply_freeze_config()
+
+    def _freeze_groups(self) -> dict[str, list[str]]:
+        return {
+            "input": [r"^wi$", r"^si$"],
+            "recurrent": [r"^m$", r"^n$"],
+            "output": [r"^wo$", r"^so$"],
+            "h0": [r"^h0$"],
+        }
 
     def extra_repr(self) -> str:
         """Show key model info and parameter shapes."""

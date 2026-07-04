@@ -82,6 +82,15 @@ class LatentCircuitModel(NeuralDynamicsModel):
 
         # Apply connectivity masks
         self.apply_constraints()
+        self.apply_freeze_config()
+
+    def _freeze_groups(self) -> dict[str, list[str]]:
+        return {
+            "input": [r"^w_in\."],
+            "recurrent": [r"^w_rec\."],
+            "output": [r"^w_out\."],
+            "h0": [],  # initial state is fixed zero
+        }
 
     def _init_weights(self) -> None:
         """Initialize weights to match reference implementation."""

@@ -40,6 +40,19 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
         else:
             r3 = 1.0 / (K ** 0.5)
             self.C = nn.Parameter(uniform_(torch.empty(M, K), -r3, r3))
+        self.apply_freeze_config()
+
+    def _freeze_groups(self) -> dict[str, list[str]]:
+        groups: dict[str, list[str]] = {
+            "recurrent": [r"^A$", r"^W1\.", r"^W2\.", r"^h1$", r"^h2$"],
+            "output": [],  # identity readout: no trainable output parameters
+            "h0": [],      # default zero initial state, not trainable
+        }
+        if self.C is not None:
+            groups["input"] = [r"^C\."]
+        else:
+            groups["input"] = []
+        return groups
 
     # ---------------- 硬契约 ----------------
     def recurrence(self, x_t, z_prev, *, inputs=None):

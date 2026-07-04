@@ -89,6 +89,15 @@ class TinyRNNModel(NeuralDynamicsModel):
         # code uses .double() / float64). This must happen after all submodules
         # and buffers have been registered.
         self.to(config.torch_dtype)
+        self.apply_freeze_config()
+
+    def _freeze_groups(self) -> dict[str, list[str]]:
+        return {
+            "input": [r"^gru\.weight_ih_l0$", r"^gru\.bias_ih_l0$"],
+            "recurrent": [r"^gru\.weight_hh_l0$", r"^gru\.bias_hh_l0$"],
+            "output": [r"^readout_layer\.", r"^readout_coef$"],
+            "h0": [r"^h0$"],
+        }
 
     def init_state(self, batch_size: int, device: str | torch.device = "cpu") -> torch.Tensor:
         """Initial hidden state z_0: (B, M)."""

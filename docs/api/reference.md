@@ -83,9 +83,15 @@ class NeuralRNNConfig:
         output_dim: int = 0,        # Readout dimension
         dt: float | None = None,    # Euler step for continuous-time models
         activation: str = "relu",   # Nonlinearity name
+        freeze_input: bool = False,      # Freeze input-layer parameters
+        freeze_recurrent: bool = False,  # Freeze recurrent / hidden parameters
+        freeze_output: bool = False,     # Freeze output / readout parameters
+        freeze_h0: bool = False,         # Freeze initial-state parameters
         **kwargs: Any,              # Forward-compat: unknown keys stored as attrs
     ) -> None: ...
 ```
+
+The four `freeze_*` flags provide a convenient way to implement echo-state / reservoir-computing training. They are automatically serialized with the config and respected by all built-in models.
 
 **Serialization Methods**:
 
@@ -193,6 +199,26 @@ class NeuralDynamicsModel(nn.Module):
     def analytic_parameters(self) -> dict[str, Tensor]:
         """Expose parameters needed by the analytic fixed-point solver (scy_fi).
         Only required when supports_analytic_fixed_points is True."""
+
+    # ======== Parameter freezing (ESN / reservoir computing) ========
+    def freeze_parameters(
+        self,
+        groups: str | list[str] | None = None,
+        patterns: list[str] | None = None,
+    ) -> list[str]:
+        """Freeze parameters by generic group name(s) and/or regex patterns.
+        Common groups: 'input', 'recurrent', 'output', 'h0'."""
+
+    def unfreeze_parameters(
+        self,
+        groups: str | list[str] | None = None,
+        patterns: list[str] | None = None,
+    ) -> list[str]:
+        """Unfreeze parameters previously frozen via freeze_parameters."""
+
+    def apply_freeze_config(self) -> list[str]:
+        """Apply freeze flags stored in self.config. Called automatically
+        by built-in models at the end of __init__."""
 
     # ======== Persistence ========
     def save_pretrained(self, save_directory: str, metadata: dict | None = None) -> None:
