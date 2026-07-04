@@ -11,6 +11,7 @@ For each paper integrated into NeuralRNN, we keep a "method note": it explains w
 | Low-rank RNN | A/B | `models/lowrank` | [lowrank_rnn.md](lowrank_rnn.md) | ✅ Ready |
 | Tiny RNN (behavior fitting) | Behavior | `models/tiny_rnn` + CV | [tiny_rnn.md](tiny_rnn.md) | ✅ Ready |
 | Latent Circuit | A | `models/latent_circuit` | [latent_circuit.md](latent_circuit.md) | ✅ Ready |
+| Echo-State / Critical Initialization | A | `models/ctrnn` + `freeze_*` | [esn.md](esn.md) | ✅ Ready |
 | LFADS | B | `models/lfads` + `VariationalObjective` | _to be written_ | ⬜ Pending port |
 | MARBLE (manifold geometry) | Analysis | `analysis/manifold` | _to be written_ | ⬜ Pending port |
 | neuralflow (continuous-time latent flow field) | Analysis | `analysis/manifold` | _to be written_ | ⬜ Pending port |

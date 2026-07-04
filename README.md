@@ -26,7 +26,7 @@ NeuralRNN provides an interface to automatically connect the model to the unifie
 
 ## What NeuralRNN contains and not
 
-NeuralRNN contains the pipeline to model RNN for neuroscience research, including (1) constructing dataset, (2) building and configuring RNN models, (3) training, and (4) model analysis (See the full pipeline in **[`custom pipeline`](notebook/03_custom_pipeline.ipynb)**  and the documents in **[`docs`](docs/README.md)**). We also provide the guide to implement each built-in model through this framework (see **[`notebook`](notebook/README.md)**).
+NeuralRNN contains the pipeline to model RNN for neuroscience research, including (1) constructing dataset, (2) building and configuring RNN models, (3) training, (4) model analysis, and (5) **selective layer freezing for echo-state / reservoir-computing style training** (see the full pipeline in **[`custom pipeline`](notebook/03_custom_pipeline.ipynb)**  and the documents in **[`docs`](docs/README.md)**). We also provide the guide to implement each built-in model through this framework (see **[`notebook`](notebook/README.md)**).
 
 However, there are others methods using dynamical system methods as well, including [MARBLE](https://www.nature.com/articles/s41592-024-02582-2), [FINDR](https://www.nature.com/articles/s41586-025-09528-4), [neuralflow](https://www.nature.com/articles/s41586-025-09199-1), and [SSMLearn](https://arxiv.org/abs/2510.13519). These model-agnostic methods aim to inference interpretable representations of neural population dynamics exactly from the neural response, which are not included in NeuralRNN but can be suitably combined for the further analysis of RNN models.
 

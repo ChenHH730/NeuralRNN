@@ -425,9 +425,9 @@ class TestAnalysisIntegration:
             extent=(-1, 1), n_grid=5,
         )
         n_total = 5 * 5
-        assert vf.grid_pc.shape == (n_total, 2)
-        assert vf.velocity_pc.shape == (n_total, 2)
-        assert vf.speed.shape == (n_total,)
+        assert vf.grid_pc.shape == (5, 5, 2)
+        assert vf.velocity_pc.shape == (5, 5, 2)
+        assert vf.speed.shape == (5, 5)
         assert np.isfinite(vf.speed).all()
 
     def test_psychometric_on_latent_circuit(self):

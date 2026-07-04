@@ -4,8 +4,8 @@ Every notebook is to implement a proposed method from previous works, with the s
 
 | Notebook | Paradigm | Reference | Key API |
 |---|---|---|---|
-| [01_ctrnn_fixedpoints_paradigmA.ipynb](02_ctrnn_fixedpoints_paradigmA.ipynb) | Task | Song et al. (2016) | `SupervisedObjective` · `find_fixed_points` · `fit_pca` · `linearize` · `dominant_direction` · `Line attractor`|
-| [02_plrnn_reconstruction_paradigmB.ipynb](01_plrnn_reconstruction_paradigmB.ipynb) | Reconstruction | Durstewitz et al. (2023) | `TeacherForcingObjective` · `find_fixed_points` · `max_lyapunov_exponent`|
+| [01_ctrnn_fixedpoints_paradigmA.ipynb](01_ctrnn_fixedpoints_paradigmA.ipynb) | Task | Song et al. (2016) | `SupervisedObjective` · `find_fixed_points` · `fit_pca` · `linearize` · `dominant_direction` · `Line attractor`|
+| [02_plrnn_reconstruction_paradigmB.ipynb](02_plrnn_reconstruction_paradigmB.ipynb) | Reconstruction | Durstewitz et al. (2023) | `TeacherForcingObjective` · `find_fixed_points` · `max_lyapunov_exponent`|
 | [03_custom_pipeline.ipynb](03_custom_pipeline.ipynb) | Task | None | `CustomDataset.from_arrays` · `SupervisedObjective`|
 | [04_EIRNN_paradigmA.ipynb](04_EIRNN_paradigmA.ipynb) | Task | Song et al. (2016) | `ei_rnn` |
 | [05_latent_circuit_paradigmB.ipynb](05_latent_circuit_paradigmB.ipynb) | Reconstruction | Langdon & Engel (2025) | `latent_circuit` · `LatentCircuitObjective` · `connection analysis` |
@@ -13,6 +13,7 @@ Every notebook is to implement a proposed method from previous works, with the s
 | [06a_test_gru.ipynb](06a_test_gru.ipynb) | Behavioral Fitting | Ji-An et al. (2025) | architecture validation with original training style + float64 experiment |
 | [07_lowrank_RNN_paradigmA.ipynb](07_lowrank_RNN_paradigmA.ipynb) | Task | Dubreuil et al. (2022) | `lowrank_rnn` · `vector field` · `GMM clustering` |
 | [08_lowrank_RNN_paradigmB.ipynb](08_lowrank_RNN_paradigmB.ipynb) | Reconstruction | Valente et al. (2022) | `lowrank_rnn` · LINT |
+| [09_echo_state_network_paradigmA.ipynb](09_echo_state_network_paradigmA.ipynb) | Task / Reservoir | critical_init (Pachitariu et al., 2026) | `freeze_*` · critical recurrent init · readout-only training · `find_fixed_points` · `emax` comparison |
 
 ## ongoing notebook (see PORTING_GUIDE)
 

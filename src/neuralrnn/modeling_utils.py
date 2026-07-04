@@ -134,6 +134,93 @@ class NeuralDynamicsModel(nn.Module):
         super().__init__()
         self.config = config
 
+    # ====================== 参数冻结支持（ESN / reservoir computing）======================
+    def freeze_parameters(
+        self,
+        groups: str | list[str] | None = None,
+        patterns: list[str] | None = None,
+    ) -> list[str]:
+        """Freeze parameters by generic group name(s) and/or regex patterns.
+
+        Args:
+            groups: Generic layer group(s) supported by this model, e.g.
+                ``"input"``, ``"recurrent"``, ``"output"``, ``"h0"``.
+            patterns: Optional list of regex patterns matched against full
+                parameter names.
+
+        Returns:
+            Sorted list of parameter names whose ``requires_grad`` was set to False.
+        """
+        names = self._match_parameters(groups, patterns)
+        self._set_requires_grad(names, False)
+        return sorted(names)
+
+    def unfreeze_parameters(
+        self,
+        groups: str | list[str] | None = None,
+        patterns: list[str] | None = None,
+    ) -> list[str]:
+        """Unfreeze parameters previously frozen via ``freeze_parameters``."""
+        names = self._match_parameters(groups, patterns)
+        self._set_requires_grad(names, True)
+        return sorted(names)
+
+    def apply_freeze_config(self) -> list[str]:
+        """Apply freeze flags stored in ``self.config``.
+
+        Subclasses should call this at the end of ``__init__`` if they want
+        config-level freezing to take effect automatically.
+        """
+        groups = []
+        if getattr(self.config, "freeze_input", False):
+            groups.append("input")
+        if getattr(self.config, "freeze_recurrent", False):
+            groups.append("recurrent")
+        if getattr(self.config, "freeze_output", False):
+            groups.append("output")
+        if getattr(self.config, "freeze_h0", False):
+            groups.append("h0")
+        if not groups:
+            return []
+        return self.freeze_parameters(groups=groups)
+
+    def _freeze_groups(self) -> dict[str, list[str]]:
+        """Mapping from generic group names to regex patterns for this model.
+
+        Override per model family. The default empty mapping means that only
+        explicit ``patterns`` can be used.
+        """
+        return {}
+
+    def _match_parameters(
+        self,
+        groups: str | list[str] | None,
+        patterns: list[str] | None,
+    ) -> set[str]:
+        import re
+
+        group_map = self._freeze_groups()
+        if isinstance(groups, str):
+            groups = [groups]
+        matched: set[str] = set()
+        for g in groups or []:
+            if g not in group_map:
+                available = list(group_map.keys())
+                raise ValueError(
+                    f"Unknown freeze group '{g}' for {type(self).__name__}. "
+                    f"Available groups: {available}"
+                )
+            for pat in group_map[g]:
+                matched.update({n for n, _ in self.named_parameters() if re.search(pat, n)})
+        for pat in patterns or []:
+            matched.update({n for n, _ in self.named_parameters() if re.search(pat, n)})
+        return matched
+
+    def _set_requires_grad(self, names: set[str], value: bool) -> None:
+        for n, p in self.named_parameters():
+            if n in names:
+                p.requires_grad = value
+
     # ====================== 硬契约（子类必须实现）======================
     def recurrence(self, x_t: torch.Tensor | None, z_prev: torch.Tensor,
                    *, inputs: torch.Tensor | None = None) -> torch.Tensor:

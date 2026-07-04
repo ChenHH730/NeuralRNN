@@ -49,6 +49,16 @@ class CTRNNModel(NeuralDynamicsModel):
         else:
             self.dale_mask = None
 
+        self.apply_freeze_config()
+
+    def _freeze_groups(self) -> dict[str, list[str]]:
+        return {
+            "input": [r"^input2h\."],
+            "recurrent": [r"^h2h\."],
+            "output": [r"^readout_layer\."],
+            "h0": [r"^h0$"],
+        }
+
     def init_state(self, batch_size, device="cpu"):
         return self.h0.to(device).expand(batch_size, -1).contiguous()
 
@@ -59,7 +69,7 @@ class CTRNNModel(NeuralDynamicsModel):
             W = W.abs() @ self.dale_mask
         return W
 
-    # ---------------- 硬契约 ----------------
+    # ---------------- hard contract ----------------
     def recurrence(self, x_t, z_prev, *, inputs=None):
         W = self._recurrent_weight()
         pre = self.input2h(x_t) + torch.nn.functional.linear(z_prev, W, self.h2h.bias)

@@ -38,6 +38,10 @@ class NeuralRNNConfig:
         output_dim: int = 0,
         dt: float | None = None,
         activation: str = "relu",
+        freeze_input: bool = False,
+        freeze_recurrent: bool = False,
+        freeze_output: bool = False,
+        freeze_h0: bool = False,
         **kwargs: Any,
     ) -> None:
         self.input_dim = input_dim
@@ -45,6 +49,10 @@ class NeuralRNNConfig:
         self.output_dim = output_dim
         self.dt = dt
         self.activation = activation
+        self.freeze_input = freeze_input
+        self.freeze_recurrent = freeze_recurrent
+        self.freeze_output = freeze_output
+        self.freeze_h0 = freeze_h0
         # 透传未知字段，保证向前兼容（旧 checkpoint 多出的字段不报错）
         for k, v in kwargs.items():
             setattr(self, k, v)
