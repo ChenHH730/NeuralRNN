@@ -181,10 +181,11 @@ def _latent_series(steps, A, W1, W2, h1, h2, dz, z0):
 
 
 def _get_eigvals(A, W1, W2, D_list, order):
-    # A 为 (M,M) 对角阵；与 CNS2023 原实现一致地取 np.diag(A) 后逐步累乘。
+    # A 可能为 (M,) 对角向量（shallowPLRNN/dendPLRNN）或 (M,M) 全矩阵（ALRNN 有效形式）。
+    A_mat = np.diag(A) if A.ndim == 1 else A
     e = np.eye(A.shape[0])
     for i in range(order):
-        e = (np.diag(A) + W1.dot(D_list[:, :, i]).dot(W2)).dot(e)
+        e = (A_mat + W1.dot(D_list[:, :, i]).dot(W2)).dot(e)
     return np.linalg.eigvals(e)
 
 
@@ -236,11 +237,17 @@ class AnalyticPLRNNFixedPointFinder:
         self.outer_it = outer_it
         self.inner_it = inner_it
 
-    def find(self, model: NeuralDynamicsModel) -> FixedPointSet:
+    def find(self, model: NeuralDynamicsModel, *,
+             task_input: torch.Tensor | None = None) -> FixedPointSet:
         if not model.supports_analytic_fixed_points:
             raise RuntimeError(f"{type(model).__name__} 不支持解析不动点；请用数值后端。")
-        p = model.analytic_parameters()        # 仅依赖契约暴露的参数
-        A = p["A"].cpu().numpy()               # (M,M) 对角
+        p = model.analytic_parameters(task_input=task_input)  # 允许折叠常值输入到偏置
+        required = {"A", "W1", "W2", "h1", "h2"}
+        if not required.issubset(p):
+            raise RuntimeError(
+                f"analytic_parameters() 必须返回 {required}，实际返回 {set(p.keys())}"
+            )
+        A = p["A"].cpu().numpy()               # (M,M)，对角或全矩阵
         W1 = p["W1"].cpu().numpy()
         W2 = p["W2"].cpu().numpy()
         h1 = p["h1"].cpu().numpy()
@@ -427,17 +434,21 @@ def find_fixed_points(model: NeuralDynamicsModel, *, backend: str = "auto",
     """自动择优：解析优先（若模型支持），否则数值。
 
     backend: "auto" / "numeric" / "analytic" / "scipy"。
-    task_input: 数值/scipy 后端的输入条件；max_order: 解析后端搜索的最高环阶。
+    task_input: 常值外部输入条件。对解析后端，会折叠到有效偏置（如 h1 + C*s）后求解；
+                对 numeric/scipy 后端，作为固定的输入条件搜索不动点。
+    max_order: 解析后端搜索的最高环阶。
 
     后端对比：
     - numeric:  PyTorch Adam 梯度下降 ‖F(z)−z‖²（通用，GPU 友好，推荐）
-    - analytic: PLRNN 精确求解（仅限 PLRNN 模型）
+    - analytic: PLRNN 精确求解（仅限 PLRNN 模型；支持常值 task_input）
     - scipy:    scipy fsolve / Powell（⚠️ 不太稳定，不推荐使用；
                 Euler 离散步进下 fsolve 经常收敛到非不动点；
                 仅在 numeric 后端找不到结果时可尝试 mode='approx'）
     """
     if backend == "analytic" or (backend == "auto" and model.supports_analytic_fixed_points):
-        return AnalyticPLRNNFixedPointFinder(max_order=max_order, **kwargs).find(model)
+        return AnalyticPLRNNFixedPointFinder(max_order=max_order, **kwargs).find(
+            model, task_input=task_input
+        )
     if backend == "scipy":
         return ScipyFixedPointFinder(**kwargs).find(model, task_input=task_input)
     return NumericFixedPointFinder(**kwargs).find(model, task_input=task_input)

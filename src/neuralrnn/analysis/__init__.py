@@ -47,6 +47,12 @@ from .stsp_metrics import (
     hellinger_distance,
 )
 from .manifold import trajectories_to_pos_vel
+from .manifolds import (
+    PLRNNManifoldTracer,
+    compute_manifold,
+    ManifoldSegment,
+    ManifoldTrace,
+)
 from .connectivity import analyze_connectivity, ConnectivityResult
 from .perturbation import (
     analyze_perturbation,
@@ -113,6 +119,10 @@ __all__ = [
     "hellinger_distance",
     # -- manifold --
     "trajectories_to_pos_vel",
+    "PLRNNManifoldTracer",
+    "compute_manifold",
+    "ManifoldSegment",
+    "ManifoldTrace",
     # -- connectivity --
     "analyze_connectivity",
     "ConnectivityResult",

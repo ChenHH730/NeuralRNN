@@ -20,7 +20,8 @@ class TimeSeriesDataset(BaseDataset):
     kind = "timeseries"
 
     def __init__(self, data, external_inputs=None, sequence_length: int = 200,
-                 batch_size: int = 16, normalize: bool = False, test: np.ndarray | None = None):
+                 batch_size: int = 16, normalize: bool = False, test: np.ndarray | None = None,
+                 dt: float | None = None):
         X = torch.as_tensor(np.asarray(data), dtype=torch.float32)
         self.normalizer = StandardScaler().fit(X) if normalize else None
         self.X = self.normalizer.transform(X) if self.normalizer else X
@@ -29,6 +30,7 @@ class TimeSeriesDataset(BaseDataset):
         self.dim = self.N
         self.sequence_length = sequence_length
         self.batch_size = batch_size
+        self.dt = dt
         self.S = None if external_inputs is None else torch.as_tensor(
             np.asarray(external_inputs), dtype=torch.float32)
         if self.S is not None:
@@ -60,8 +62,8 @@ class TimeSeriesDataset(BaseDataset):
         return batch
 
     @classmethod
-    def from_npy(cls, train_path, test_path=None, **kwargs) -> "TimeSeriesDataset":
+    def from_npy(cls, train_path, test_path=None, dt=None, **kwargs) -> "TimeSeriesDataset":
         """registry loader 入口：从 .npy 文件构造（对应 lorenz63 数据集）。"""
         train = np.load(train_path).astype(np.float32)
         test = np.load(test_path).astype(np.float32) if test_path else None
-        return cls(train, test=test, **kwargs)
+        return cls(train, test=test, dt=dt, **kwargs)

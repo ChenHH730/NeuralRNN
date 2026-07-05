@@ -387,6 +387,25 @@ class NeuralDynamicsModel(nn.Module):
 
         return torch.autograd.functional.jacobian(f, z)
 
+    def analytic_parameters(self, task_input: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
+        """暴露解析不动点/环算法所需的参数。
+
+        仅当 ``supports_analytic_fixed_points`` 为 True 时需要实现。
+        可选的 ``task_input`` 允许模型将常值外部输入折叠到有效偏置中，例如
+        ``h1_eff = h1 + C @ task_input``，从而复用自治系统的解析求解器。
+
+        Args:
+            task_input: (input_dim,) 常值外部输入，或 None（自治系统）。
+
+        Returns:
+            dict，键与具体解析算法约定一致（如 shallowPLRNN 的 SCYFI 使用
+            {"A", "W1", "W2", "h1", "h2"}）。
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} 未实现 analytic_parameters(); "
+            "请用 numeric/scipy 后端，或为此模型实现解析参数暴露。"
+        )
+
     # ====================== 统一存读（safetensors + json）======================
     def save_pretrained(self, save_directory: str, metadata: dict | None = None) -> None:
         """写 config.json + model.safetensors (+ metadata.json)。"""

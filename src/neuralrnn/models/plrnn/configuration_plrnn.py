@@ -50,19 +50,55 @@ class ShallowPLRNNConfig(NeuralRNNConfig):
 
 
 class DendPLRNNConfig(ShallowPLRNNConfig):
-    """dendritic PLRNN（基函数展开）。占位：移植 dendPLRNN-main 时补充其专属字段
-    （如基函数个数 B、阈值参数等）。"""
+    """dendritic PLRNN (linear spline basis expansion).
+
+    State equation:
+        z_t = A z_{t-1} + W sum_b alpha_b ReLU(z_{t-1} - h_b) + h_0 + C s_t
+
+    Args:
+        n_bases: Number of basis functions B per latent unit.
+        use_clipping: Whether to use the clipped basis expansion that guarantees
+            bounded orbits when ||A||_2 < 1.
+        clip_range: Optional hard clip range for latent states.
+    """
     model_type = "dend_plrnn"
 
-    def __init__(self, n_bases: int = 20, **kwargs):
+    def __init__(
+        self,
+        n_bases: int = 20,
+        use_clipping: bool = False,
+        clip_range: float | None = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.n_bases = n_bases
+        self.use_clipping = use_clipping
+        self.clip_range = clip_range
 
 
 class ALRNNConfig(ShallowPLRNNConfig):
-    """almost-linear RNN。占位：移植 ALRNN-DSR-main 时补充（如线性单元数）。"""
+    """almost-linear RNN.
+
+    State equation:
+        z_t = A z_{t-1} + W Phi*(z_{t-1}) + h + C s_t
+        Phi*(z) = [z_1, ..., z_{M-P}, ReLU(z_{M-P+1}), ..., ReLU(z_M)]
+
+    Args:
+        n_linear: Number of linear (non-ReLU) units; the remaining
+            latent_dim - n_linear units are ReLU.
+        use_clipping: Whether to clip latent states.
+        clip_range: Optional hard clip range for latent states.
+    """
     model_type = "alrnn"
 
-    def __init__(self, n_linear: int = 1, **kwargs):
+    def __init__(
+        self,
+        n_linear: int = 1,
+        use_clipping: bool = False,
+        clip_range: float | None = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.n_linear = n_linear
+        self.use_clipping = use_clipping
+        self.clip_range = clip_range

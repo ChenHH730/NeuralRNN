@@ -20,7 +20,7 @@
 5. **[papers/](papers/)** —— 逐篇论文的方法笔记。
    - [README.md](papers/README.md)：论文清单与状态。
    - [_TEMPLATE.md](papers/_TEMPLATE.md)：每纳入一篇论文，复制此模板填写。
-   - 已就绪示例：[ctrnn.md](papers/ctrnn.md)（范式A 参考）、[plrnn.md](papers/plrnn.md)（范式B 参考）。
+   - 已就绪示例：[ctrnn.md](papers/ctrnn.md)（范式A 参考）、[plrnn.md](papers/plrnn.md)（范式B PLRNN 家族参考，现包含 shallowPLRNN、dendPLRNN、ALRNN）。
    - [eirnn.md](papers/eirnn.md)：E-I RNN（Song et al., 2016）—— Dale 约束下的兴奋-抑制 RNN。
    - [lowrank_rnn.md](papers/lowrank_rnn.md)：低秩 RNN（Dubreuil et al., 2022；Valente et al., 2022）—— 任务优化与 LINT 动力学重构。
 

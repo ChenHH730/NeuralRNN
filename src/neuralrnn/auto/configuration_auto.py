@@ -21,6 +21,7 @@ def register_config(model_type: str):
 
 
 def _read_model_type(path: str) -> str:
+    path = os.fspath(path)
     json_file = path if path.endswith(".json") else os.path.join(path, CONFIG_FILE_NAME)
     with open(json_file, "r", encoding="utf-8") as f:
         return json.load(f)["model_type"]
@@ -45,6 +46,7 @@ class AutoConfig:
 
     @staticmethod
     def from_pretrained(path: str) -> NeuralRNNConfig:
+        path = os.fspath(path)
         model_type = _read_model_type(path)
         _ensure_config_loaded(model_type)
         return CONFIG_REGISTRY[model_type].from_pretrained(path)

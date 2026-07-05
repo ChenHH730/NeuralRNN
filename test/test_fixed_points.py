@@ -88,6 +88,49 @@ class TestAnalyticBackend:
                                 task_input=torch.zeros(3), n_candidates=8, n_iters=50)
         assert isinstance(fps, FixedPointSet)
 
+    def test_analytic_with_task_input(self):
+        cfg = AutoConfig.for_model("shallow_plrnn", input_dim=2, latent_dim=3,
+                                   output_dim=3, hidden_dim=10, autonomous=False)
+        model = AutoModel.from_config(cfg)
+        task_input = torch.tensor([0.3, -0.2], dtype=torch.float32)
+        fps = find_fixed_points(model, backend="analytic", task_input=task_input,
+                                max_order=1, outer_it=40, inner_it=20)
+        assert isinstance(fps, FixedPointSet)
+        # Random init may occasionally find no FPs; the key check is that the solver runs
+        # without error and supports task_input (quantitative match is covered by the
+        # numeric comparison test below).
+
+    def test_analytic_task_input_matches_numeric(self):
+        cfg = AutoConfig.for_model("shallow_plrnn", input_dim=2, latent_dim=3,
+                                   output_dim=3, hidden_dim=10, autonomous=False)
+        model = AutoModel.from_config(cfg)
+        task_input = torch.tensor([0.3, -0.2], dtype=torch.float32)
+
+        fps_analytic = find_fixed_points(model, backend="analytic", task_input=task_input,
+                                         max_order=1, outer_it=20, inner_it=10)
+        fps_numeric = find_fixed_points(model, backend="numeric", task_input=task_input,
+                                        n_candidates=32, n_iters=2000, speed_tol=0.5)
+
+        if len(fps_analytic) == 0 or len(fps_numeric) == 0:
+            pytest.skip("One backend found no fixed points")
+
+        # The lowest-speed numeric point should be close to some analytic point
+        best_numeric = min(fps_numeric.points, key=lambda p: p.speed)
+        distances = [np.linalg.norm(best_numeric.z - p.z) for p in fps_analytic.points]
+        assert min(distances) < 0.5, "Numeric and analytic fixed points disagree"
+
+    def test_analytic_ignores_task_input_for_autonomous_model(self, plrnn_model):
+        task_input = torch.tensor([0.3, -0.2], dtype=torch.float32)
+        fps_with = find_fixed_points(plrnn_model, backend="analytic", task_input=task_input,
+                                     max_order=1, outer_it=10, inner_it=5)
+        fps_without = find_fixed_points(plrnn_model, backend="analytic",
+                                        max_order=1, outer_it=10, inner_it=5)
+        assert len(fps_with) == len(fps_without)
+        if len(fps_with) > 0 and len(fps_without) > 0:
+            coords_with = np.sort(fps_with.coords(), axis=0)
+            coords_without = np.sort(fps_without.coords(), axis=0)
+            assert np.allclose(coords_with, coords_without, atol=1e-5)
+
 
 class TestFixedPointSet:
     def test_coords_empty(self):

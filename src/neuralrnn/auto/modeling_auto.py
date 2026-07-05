@@ -67,6 +67,7 @@ class AutoModel:
 
     @staticmethod
     def from_pretrained(path: str, *, map_location: str = "cpu") -> NeuralDynamicsModel:
+        path = os.fspath(path)
         config = AutoConfig.from_pretrained(path)
         _ensure_loaded(config.model_type)
         cls = MODEL_REGISTRY[config.model_type]

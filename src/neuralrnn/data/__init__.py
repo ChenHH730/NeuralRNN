@@ -6,9 +6,12 @@ from .cognitive_task_dataset import CognitiveTaskDataset
 from .latent_circuit_dataset import LatentCircuitDataset
 from .registry import DATASET_REGISTRY, DatasetSpec, load_dataset
 
+from .trial_dataset import TrialTimeseriesDataset
+
 __all__ = [
     "BaseDataset", "StandardScaler",
     "TimeSeriesDataset",
+    "TrialTimeseriesDataset",
     "CustomDataset",
     "CognitiveTaskDataset",
     "LatentCircuitDataset",

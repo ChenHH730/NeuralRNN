@@ -14,8 +14,15 @@ from ..modeling_utils import NeuralDynamicsModel
 
 @torch.no_grad()
 def max_lyapunov_exponent(model: NeuralDynamicsModel, z1: torch.Tensor, T: int = 10000,
-                          T_trans: int = 1000, ons: int = 1) -> float:
-    """z1:(M,) 初值。先演化 T_trans 步弃暂态，再沿 T 步累计最大指数。"""
+                          T_trans: int = 1000, ons: int = 1,
+                          dt: float | None = None) -> float:
+    """z1:(M,) 初值。先演化 T_trans 步弃暂态，再沿 T 步累计最大指数。
+
+    Args:
+        dt: 采样时间间隔。如果提供，返回值会除以 dt，把离散时间指数转换为连续时间指数。
+            例如 CNS2023 的 Lorenz-63 数据采样间隔为 0.01，原教程将离散指数除以 0.01
+            得到 ~0.906。若 dt 为 None 且 model.config.dt 存在且为正，则自动使用它。
+    """
     model.eval()
     M = model.config.latent_dim
     device = z1.device
@@ -34,4 +41,9 @@ def max_lyapunov_exponent(model: NeuralDynamicsModel, z1: torch.Tensor, T: int =
         if t % ons == 0:
             Q, R = torch.linalg.qr(Q)
             lyap += torch.log(torch.abs(R[0, 0])).item()
-    return lyap / T
+    lam = lyap / T
+    if dt is None:
+        dt = getattr(model.config, "dt", None)
+    if dt is not None and dt > 0:
+        return lam / dt
+    return lam

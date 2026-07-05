@@ -34,6 +34,7 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
         unpack="zip",
         files={"train": "lorenz63_train.npy", "test": "lorenz63_test.npy"},
         loader="neuralrnn.data.timeseries_dataset:TimeSeriesDataset.from_npy",
+        extra={"dt": 0.01},
     ),
     # nn-brain：neurogym 任务（无需下载）
     "perceptual_decision_making": DatasetSpec(
@@ -158,5 +159,6 @@ def load_dataset(name: str, **overrides):
     if spec.files:
         # 约定：files 的逻辑名（train/test...）作为 *_path 关键字传入
         path_kwargs = {f"{k}_path": v for k, v in local.items()}
-        return loader(**path_kwargs, **overrides)
+        extra = {**(spec.extra or {}), **overrides}
+        return loader(**path_kwargs, **extra)
     return loader(local.get("file"), **overrides)

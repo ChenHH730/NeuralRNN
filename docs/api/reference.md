@@ -196,9 +196,10 @@ class NeuralDynamicsModel(nn.Module):
             J: (M, M) Jacobian matrix
         """
 
-    def analytic_parameters(self) -> dict[str, Tensor]:
+    def analytic_parameters(self, task_input: Tensor | None = None) -> dict[str, Tensor]:
         """Expose parameters needed by the analytic fixed-point solver (scy_fi).
-        Only required when supports_analytic_fixed_points is True."""
+        Only required when supports_analytic_fixed_points is True.
+        Optional task_input allows folding constant external inputs into the effective bias."""
 
     # ======== Parameter freezing (ESN / reservoir computing) ========
     def freeze_parameters(
@@ -485,7 +486,74 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
         """Returns {"A", "W1", "W2", "h1", "h2"} for the analytic fixed-point solver."""
 ```
 
-`DendPLRNNModel` and `ALRNNModel` are placeholders that inherit from `ShallowPLRNNModel`.
+#### `DendPLRNNConfig`
+
+```python
+class DendPLRNNConfig(ShallowPLRNNConfig):
+    model_type = "dend_plrnn"
+    def __init__(
+        self,
+        n_bases: int = 20,          # Number of spline bases B per latent unit
+        use_clipping: bool = False, # Hard-clip basis expansion for bounded orbits
+        clip_range: float | None = None,
+        **kwargs,
+    ) -> None: ...
+```
+
+#### `DendPLRNNModel`
+
+```python
+@register_model("dend_plrnn")
+class DendPLRNNModel(NeuralDynamicsModel):
+    config_class = DendPLRNNConfig
+
+    # Recurrence:
+    # z = A*z + W @ sum_b alpha_b ReLU(z - H_b) + h [+ C @ s]
+    def recurrence(self, x_t, z_prev, *, inputs=None) -> Tensor: ...
+    def readout(self, z_t) -> Tensor: ...  # Identity
+
+    # Analytic support
+    supports_analytic_fixed_points = True
+    def jacobian(self, z, *, inputs=None) -> Tensor:
+        """J(z) = diag(A) + W @ diag(sum_b alpha_b 1[z > H_b])"""
+    def analytic_parameters(self) -> dict[str, Tensor]:
+        """Returns effective {"A", "W1", "W2", "h1", "h2"} for the analytic solver."""
+```
+
+#### `ALRNNConfig`
+
+```python
+class ALRNNConfig(ShallowPLRNNConfig):
+    model_type = "alrnn"
+    def __init__(
+        self,
+        n_linear: int = 1,          # Number of linear units; P = latent_dim - n_linear
+        use_clipping: bool = False,
+        clip_range: float | None = None,
+        **kwargs,
+    ) -> None: ...
+```
+
+#### `ALRNNModel`
+
+```python
+@register_model("alrnn")
+class ALRNNModel(NeuralDynamicsModel):
+    config_class = ALRNNConfig
+
+    # Recurrence:
+    # z = A*z + W @ Phi*(z) + h [+ C @ s]
+    # Phi*(z) = [z_1, ..., z_{M-P}, ReLU(z_{M-P+1}), ..., ReLU(z_M)]
+    def recurrence(self, x_t, z_prev, *, inputs=None) -> Tensor: ...
+    def readout(self, z_t) -> Tensor: ...  # Identity
+
+    # Analytic support
+    supports_analytic_fixed_points = True
+    def jacobian(self, z, *, inputs=None) -> Tensor:
+        """J(z) = diag(A) + W @ diag([1_{M-P}; 1[z_{-P:}>0]])"""
+    def analytic_parameters(self) -> dict[str, Tensor]:
+        """Returns effective {"A", "W1", "W2", "h1", "h2"} for the analytic solver."""
+```
 
 ### Lowrank RNN Model (Paradigm A/B)
 
@@ -831,6 +899,38 @@ class NeurogymDataset(BaseDataset):
 
     def task_input(self, kind="stimulus") -> Tensor:
         """Return the task-condition input for fixed-point analysis (e.g. 0-coherence mean)."""
+```
+
+### `TrialTimeseriesDataset`
+
+**Module**: `neuralrnn.data.trial_dataset`
+
+For Paradigm B task-state reconstruction where the data are naturally organized as independent trials. Preserves the `(n_trials, trial_length, n_variable)` structure and performs trial-wise train/test splitting, avoiding cross-trial leakage.
+
+```python
+class TrialTimeseriesDataset(BaseDataset):
+    kind = "trial_timeseries"
+
+    def __init__(
+        self,
+        inputs: np.ndarray | Tensor,                  # (n_trials, T, N)
+        targets: np.ndarray | Tensor | None = None,   # (n_trials, T, N)
+        external_inputs: np.ndarray | Tensor | None = None,  # (n_trials, T, K)
+        batch_size: int = 16,
+        normalize: bool = False,
+        normalize_externals: bool = False,
+        test_fraction: float = 0.0,
+        seed: int = 0,
+    ) -> None: ...
+
+    def sample_batch(self) -> dict[str, Tensor]:
+        """Returns {"inputs": (B,T,N), "targets": (B,T,N), "external_inputs": (B,T,K)|None}"""
+
+    @property
+    def test_set(self) -> "TrialTimeseriesDataset | None": ...
+
+    @classmethod
+    def from_arrays(cls, inputs, targets=None, external_inputs=None, **kwargs) -> "TrialTimeseriesDataset": ...
 ```
 
 ### `CustomDataset`
@@ -1339,9 +1439,11 @@ class AnalyticPLRNNFixedPointFinder:
     def __init__(self, max_order: int = 1, outer_it: int = 300,
                  inner_it: int = 100) -> None: ...
 
-    def find(self, model: NeuralDynamicsModel) -> FixedPointSet:
+    def find(self, model: NeuralDynamicsModel, *,
+             task_input: Tensor | None = None) -> FixedPointSet:
         """Exact enumeration of fixed points and k-cycles using PLRNN's
-        piecewise-linear structure. Requires model.supports_analytic_fixed_points."""
+        piecewise-linear structure. Requires model.supports_analytic_fixed_points.
+        Constant task_input is folded into the effective bias before solving."""
 ```
 
 #### `ScipyFixedPointFinder`
@@ -1374,7 +1476,11 @@ def find_fixed_points(model: NeuralDynamicsModel, *, backend: str = "auto",
                       task_input: Tensor | None = None,
                       max_order: int = 1, **kwargs) -> FixedPointSet:
     """Auto-select backend: analytic (if supported) else numeric.
-    backend: "auto" / "numeric" / "analytic" / "scipy"."""
+    backend: "auto" / "numeric" / "analytic" / "scipy".
+    task_input: constant external input condition. For the analytic backend it is
+                folded into the effective bias (e.g. h1 + C*s); for numeric/scipy
+                it is held fixed during the search.
+    max_order: highest cycle order for the analytic backend."""
 ```
 
 ### Linearization
@@ -1462,10 +1568,12 @@ def max_lyapunov_exponent(
     T: int = 10000,             # Steps for exponent computation
     T_trans: int = 1000,        # Transient steps to discard
     ons: int = 1,               # QR re-orthogonalization period
+    dt: float | None = None,    # Sampling interval: divide result by dt for continuous-time exponent
 ) -> float:
     """Compute the maximal Lyapunov exponent via QR iteration on Jacobians.
-    lambda_max > 0 indicates chaos (Lorenz63 ≈ 0.9 with dt=0.01).
-    Divide result by dt to get the continuous-time exponent."""
+    lambda_max > 0 indicates chaos. For discrete-time maps trained on data sampled
+    at interval dt (e.g. Lorenz-63 with dt=0.01), pass dt to obtain the continuous-time
+    exponent comparable to the ODE literature (Lorenz63 ≈ 0.906)."""
 ```
 
 ### DSR Metrics (D_stsp, D_H)
@@ -1544,6 +1652,40 @@ def marble_embedding(pos, vel, **marble_kwargs):
 def neuralflow_analysis(spike_data, **kwargs):
     """neuralflow continuous-time latent flow analysis.
     See PORTING_GUIDE Recipe 8 for integration details."""
+```
+
+### PLRNN Invariant Manifolds
+
+**Module**: `neuralrnn.analysis.manifolds`
+
+DetectingManifolds-style tracing of stable/unstable manifolds for PLRNN-family models (shallow, dend, ALRNN). Works on the effective shallowPLRNN parameters returned by `model.analytic_parameters(task_input)`.
+
+```python
+@dataclass
+class ManifoldSegment:
+    points: np.ndarray           # (n_points, M) support points
+    center: np.ndarray           # (M,) anchor point
+    basis: np.ndarray            # (manifold_dim, M) orthonormal basis
+    eigenvalues: np.ndarray      # (manifold_dim,) local eigenvalues
+    region_id: int | None = None
+    is_stable: bool = True
+
+@dataclass
+class ManifoldTrace:
+    segments: list[ManifoldSegment]
+    fixed_point: np.ndarray | None = None
+    is_stable: bool = True
+
+class PLRNNManifoldTracer:
+    def __init__(self, max_iter=10, n_samples=500, factor=0.1,
+                 propagation_steps=100, variance_threshold=0.95, seed=None): ...
+
+    def trace(self, A, W1, W2, h1, h2, z0, stable=True) -> ManifoldTrace: ...
+
+def compute_manifold(model, fixed_point: np.ndarray,
+                     task_input: Tensor | None = None,
+                     stable: bool = True, **tracer_kwargs) -> ManifoldTrace:
+    """Trace stable/unstable manifold of a PLRNN fixed point under constant task input."""
 ```
 
 ### Linear Algebra Utilities

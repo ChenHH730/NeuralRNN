@@ -88,6 +88,7 @@ class NeuralRNNConfig:
     def from_pretrained(cls, path: str) -> "NeuralRNNConfig":
         """从目录或 config.json 路径读取。若在基类上调用，请用 AutoConfig 以按
         model_type 分发到正确子类。"""
+        path = os.fspath(path)
         json_file = path if path.endswith(".json") else os.path.join(path, CONFIG_FILE_NAME)
         return cls.from_json_file(json_file)
 

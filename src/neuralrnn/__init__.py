@@ -45,7 +45,7 @@ from .auto import (
 
 # —— 数据 ——
 from .data import (
-    BaseDataset, StandardScaler, TimeSeriesDataset, CustomDataset,
+    BaseDataset, StandardScaler, TimeSeriesDataset, TrialTimeseriesDataset, CustomDataset,
     CognitiveTaskDataset, LatentCircuitDataset,
     DATASET_REGISTRY, DatasetSpec, load_dataset,
 )
@@ -65,7 +65,7 @@ __all__ = [
     "NeuralRNNConfig", "NeuralDynamicsModel", "DynamicsModelOutput",
     "AutoConfig", "AutoModel", "register_config", "register_model",
     "CONFIG_REGISTRY", "MODEL_REGISTRY",
-    "BaseDataset", "StandardScaler", "TimeSeriesDataset", "CustomDataset",
+    "BaseDataset", "StandardScaler", "TimeSeriesDataset", "TrialTimeseriesDataset", "CustomDataset",
     "CognitiveTaskDataset", "LatentCircuitDataset",
     "DATASET_REGISTRY", "DatasetSpec", "load_dataset",
     "Trainer", "TrainingArguments",

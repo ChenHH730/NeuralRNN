@@ -14,7 +14,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from neuralrnn.data import BaseDataset, TimeSeriesDataset, CustomDataset
+from neuralrnn.data import BaseDataset, TimeSeriesDataset, CustomDataset, TrialTimeseriesDataset
 from neuralrnn.data.registry import DATASET_REGISTRY, load_dataset
 from neuralrnn.data import download as download_module
 
@@ -95,6 +95,23 @@ class TestCustomDataset:
         )
         assert ds.IS is not None
         assert ds.IS.shape == (T, M)
+
+
+class TestTrialTimeseriesDataset:
+    def test_trial_dataset_registered_and_runs(self):
+        B, T, N = 16, 10, 4
+        inputs = np.random.randn(B, T, N).astype(np.float32)
+        ds = TrialTimeseriesDataset.from_arrays(inputs, batch_size=4)
+        batch = ds.sample_batch()
+        assert batch["inputs"].shape == (4, T, N)
+        assert batch["targets"].shape == (4, T, N)
+
+    def test_trial_dataset_preserves_trials_in_test_split(self):
+        B, T, N = 50, 8, 3
+        inputs = np.random.randn(B, T, N).astype(np.float32)
+        ds = TrialTimeseriesDataset.from_arrays(inputs, batch_size=4, test_fraction=0.2, seed=0)
+        assert ds.test_set is not None
+        assert ds.X.shape[0] + ds.test_set.X.shape[0] == B
 
 
 class TestDatasetRegistry:

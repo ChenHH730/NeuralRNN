@@ -88,6 +88,7 @@ class CustomDataset(BaseDataset):
         batch_size: int = 16,
         mode: str = "auto",
         normalize: bool = False,
+        normalize_externals: bool = False,
         test_fraction: float = 0.0,
         seed: int = 0,
     ) -> None:
@@ -151,6 +152,16 @@ class CustomDataset(BaseDataset):
             X = self.normalizer.transform(X)
             if self._test_inputs is not None:
                 self._test_inputs = self.normalizer.transform(self._test_inputs)
+
+        # Optional normalization of external inputs (independent from observations)
+        self.external_normalizer = None
+        if normalize and normalize_externals and S is not None:
+            self.external_normalizer = StandardScaler().fit(S)
+            S = self.external_normalizer.transform(S)
+            if self._test_external_inputs is not None:
+                self._test_external_inputs = self.external_normalizer.transform(
+                    self._test_external_inputs
+                )
 
         # Store training data
         self.X = X  # (T, N)
@@ -250,6 +261,7 @@ class CustomDataset(BaseDataset):
         ds.kind = self.kind
         ds.mode = self.mode
         ds.normalizer = self.normalizer
+        ds.external_normalizer = self.external_normalizer
         ds.X = self._test_inputs
         ds.Y = self._test_targets if self._test_targets is not None else (
             self._test_inputs.clone() if self.mode == "timeseries" else None
@@ -287,6 +299,7 @@ class CustomDataset(BaseDataset):
         targets: np.ndarray | torch.Tensor | None = None,
         internal_states: np.ndarray | torch.Tensor | None = None,
         external_inputs: np.ndarray | torch.Tensor | None = None,
+        normalize_externals: bool = False,
         **kwargs,
     ) -> CustomDataset:
         """Convenience constructor from numpy arrays or torch tensors.
@@ -297,6 +310,8 @@ class CustomDataset(BaseDataset):
                      For timeseries: same as inputs (auto-generated if None).
             internal_states: (T, M) optional internal latent states (e.g. for teacher forcing).
             external_inputs: (T, K) optional external inputs / covariates.
+            normalize_externals: If True and normalize=True, fit a separate StandardScaler
+                on ``external_inputs`` and transform them independently of ``inputs``.
             **kwargs: passed to CustomDataset.__init__ (sequence_length, batch_size, mode,
                       normalize, test_fraction, seed).
 
@@ -314,10 +329,11 @@ class CustomDataset(BaseDataset):
             ds = CustomDataset.from_arrays(traj, internal_states=states)
         """
         return cls(inputs, targets=targets, internal_states=internal_states,
-                   external_inputs=external_inputs, **kwargs)
+                   external_inputs=external_inputs, normalize_externals=normalize_externals,
+                   **kwargs)
 
     @classmethod
-    def from_dict(cls, data: dict, **kwargs) -> CustomDataset:
+    def from_dict(cls, data: dict, normalize_externals: bool = False, **kwargs) -> CustomDataset:
         """Construct from a dict with keys "inputs", "targets" (optional),
         "internal_states" (optional), "external_inputs" (optional).
 
@@ -325,6 +341,8 @@ class CustomDataset(BaseDataset):
 
         Args:
             data: dict with array-valued keys.
+            normalize_externals: If True and normalize=True, normalize ``external_inputs``
+                with a separate StandardScaler.
             **kwargs: passed to CustomDataset.__init__.
 
         Returns:
@@ -335,11 +353,12 @@ class CustomDataset(BaseDataset):
             targets=data.get("targets"),
             internal_states=data.get("internal_states"),
             external_inputs=data.get("external_inputs"),
+            normalize_externals=normalize_externals,
             **kwargs,
         )
 
     @classmethod
-    def from_npz(cls, path: str, **kwargs) -> CustomDataset:
+    def from_npz(cls, path: str, normalize_externals: bool = False, **kwargs) -> CustomDataset:
         """Load from a .npz file.
 
         Expected keys: "inputs" (required), "targets" (optional),
@@ -347,19 +366,23 @@ class CustomDataset(BaseDataset):
 
         Args:
             path: path to .npz file.
+            normalize_externals: If True and normalize=True, normalize ``external_inputs``
+                with a separate StandardScaler.
             **kwargs: passed to CustomDataset.__init__.
 
         Returns:
             CustomDataset instance.
         """
         data = np.load(path, allow_pickle=False)
-        return cls.from_dict({k: data[k] for k in data.files}, **kwargs)
+        return cls.from_dict({k: data[k] for k in data.files},
+                             normalize_externals=normalize_externals, **kwargs)
 
     @classmethod
     def from_mat(
         cls,
         path: str,
         variable_map: dict[str, str] | None = None,
+        normalize_externals: bool = False,
         **kwargs,
     ) -> CustomDataset:
         """Load from a MATLAB .mat file (requires scipy).
@@ -369,6 +392,8 @@ class CustomDataset(BaseDataset):
             variable_map: dict mapping expected keys ("inputs", "targets",
                 "internal_states", "external_inputs") to .mat variable names.
                 If None, uses the default names directly.
+            normalize_externals: If True and normalize=True, normalize ``external_inputs``
+                with a separate StandardScaler.
             **kwargs: passed to CustomDataset.__init__.
 
         Returns:
@@ -405,5 +430,6 @@ class CustomDataset(BaseDataset):
             targets=_get("targets"),
             internal_states=_get("internal_states"),
             external_inputs=_get("external_inputs"),
+            normalize_externals=normalize_externals,
             **kwargs,
         )

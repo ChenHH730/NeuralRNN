@@ -8,6 +8,8 @@ For each paper integrated into NeuralRNN, we keep a "method note": it explains w
 |---|---|---|---|---|
 | nn-brain (CTRNN + fixed-point analysis) | A | `models/ctrnn` + `analysis` | [ctrnn.md](ctrnn.md) | ✅ Reference implementation |
 | Durstewitz lab (shallowPLRNN / DSR) | B | `models/plrnn` + `analysis` | [plrnn.md](plrnn.md) | ✅ Reference implementation |
+| dendPLRNN (Brenner et al. 2022) | B | `models/plrnn` + `analysis` | [plrnn.md](plrnn.md) | ✅ Reference implementation |
+| ALRNN-DSR (Brenner et al. 2024) | B | `models/plrnn` + `analysis` | [plrnn.md](plrnn.md) | ✅ Reference implementation |
 | Low-rank RNN | A/B | `models/lowrank` | [lowrank_rnn.md](lowrank_rnn.md) | ✅ Ready |
 | Tiny RNN (behavior fitting) | Behavior | `models/tiny_rnn` + CV | [tiny_rnn.md](tiny_rnn.md) | ✅ Ready |
 | Latent Circuit | A | `models/latent_circuit` | [latent_circuit.md](latent_circuit.md) | ✅ Ready |

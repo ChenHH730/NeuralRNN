@@ -31,8 +31,18 @@ def generalized_teacher_forcing(z_pred: torch.Tensor, z_obs: torch.Tensor,
 
 
 class TeacherForcingObjective(Objective):
-    def __init__(self, alpha: float = 0.1):
+    def __init__(self, alpha: float = 0.1, forcing_interval: int | None = None):
+        """
+        Args:
+            alpha: Teacher forcing blending strength in [0, 1].
+            forcing_interval: If None (default), apply GTF at every step.
+                If an integer tau > 0, apply forcing only when t % tau == 0,
+                matching sparse teacher forcing used by ALRNN-DSR.
+        """
         self.alpha = float(alpha)
+        if forcing_interval is not None and forcing_interval <= 0:
+            raise ValueError("forcing_interval must be None or a positive integer")
+        self.forcing_interval = forcing_interval
 
     def set_forcing(self, alpha: float) -> None:
         self.alpha = float(alpha)
@@ -54,15 +64,33 @@ class TeacherForcingObjective(Objective):
         B, T, N = X.shape
 
         s0 = S[:, 0] if S is not None else None
-        z = model.recurrence(s0, X[:, 0])   # Z[0]：以首个观测作为前一状态
+        M = model.config.latent_dim
+        device = next(model.parameters()).device
+        # 当潜维 M == 观测维 N 时，直接用首观测初始化前一状态；
+        # 当 M != N 时，先用 model.init_state 初始化，再对前 N 维做 teacher forcing。
+        if M == N:
+            z = X[:, 0].to(device)
+        else:
+            z = model.init_state(B, device)
+            z = self._force(z, X[:, 0])
+        z = model.recurrence(s0, z)
         preds = [z]
         for t in range(1, T):
-            z_forced = self._force(z, X[:, t])
+            apply_force = (
+                self.forcing_interval is None or t % self.forcing_interval == 0
+            )
+            if apply_force:
+                z_forced = self._force(z, X[:, t])
+            else:
+                z_forced = z
             s_t = S[:, t] if S is not None else None
             z = model.recurrence(s_t, z_forced)
             preds.append(z)
 
         Z = torch.stack(preds, dim=1)        # (B,T,M)
-        Yhat = model.readout(Z)              # identity 时即 Z[..., :N]
+        Yhat = model.readout(Z)              # identity 时即 Z
+        # 当潜维 M 与观测维 N 不一致时，只对前 N 维计算损失
+        if Yhat.shape[-1] != Y.shape[-1]:
+            Yhat = Yhat[..., :Y.shape[-1]]
         loss = F.mse_loss(Yhat, Y)
         return loss, {"loss": loss.item(), "alpha": self.alpha}
