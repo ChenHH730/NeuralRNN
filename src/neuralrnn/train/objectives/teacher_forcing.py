@@ -1,19 +1,22 @@
-"""广义教师强制目标 GTF（范式 B：动力学重构）。
+"""Generalized teacher-forcing objective GTF (Paradigm B: dynamics reconstruction).
 
-移植自 CNS2023_tutorial.ipynb 的 predict_sequence_using_gtf：
+Ported from predict_sequence_using_gtf in CNS2023_tutorial.ipynb:
 
     z_0      = F(z_prev=x_obs[0], s[0])
-    z_forced = alpha * x_obs[t] + (1 - alpha) * z_pred        # 广义教师强制
+    z_forced = alpha * x_obs[t] + (1 - alpha) * z_pred        # generalized teacher forcing
     z_t      = F(z_prev=z_forced, s[t])
     loss     = MSE( readout(Z), targets )
 
-forcing 强度 alpha ∈ [0,1]：alpha=1 退化为纯 teacher forcing，alpha=0 为自由
-运行；DSR 常用较小 alpha（如 0.1）做"稀疏强制"以稳定混沌系统的训练。
+Forcing strength alpha in [0,1]: alpha=1 reduces to pure teacher forcing, alpha=0 to free
+running; DSR often uses a small alpha (e.g. 0.1) for "sparse forcing" to stabilize training of
+chaotic systems.
 
-关键改写（对齐框架契约，见 PORTING_GUIDE 配方2 / 契约C）：
-  - 原代码 `model(z_prev, s)` 是单步转移 → 这里调用 `model.recurrence(x_t=s, z_prev=...)`；
-  - 原代码假设潜维 = 观测维（identity readout）并整段 blend；这里推广为"只强制
-    观测子空间的前 obs_dim 维"，当 latent_dim == obs_dim 时与原实现完全一致。
+Key rewrite (to align with framework contract, see PORTING_GUIDE recipe 2 / Contract C):
+  - The original code's `model(z_prev, s)` is a single-step transition → here we call
+    `model.recurrence(x_t=s, z_prev=...)`;
+  - The original code assumes latent_dim == observation_dim (identity readout) and blends the
+    whole vector; here we generalize to "force only the first obs_dim dimensions of the observed
+    subspace", which is identical to the original when latent_dim == obs_dim.
 """
 from __future__ import annotations
 
@@ -26,7 +29,7 @@ from ...modeling_utils import NeuralDynamicsModel
 
 def generalized_teacher_forcing(z_pred: torch.Tensor, z_obs: torch.Tensor,
                                 alpha: float) -> torch.Tensor:
-    """z = alpha * z_obs + (1 - alpha) * z_pred（逐元素混合）。"""
+    """z = alpha * z_obs + (1 - alpha) * z_pred (element-wise blending)."""
     return alpha * z_obs + (1.0 - alpha) * z_pred
 
 
@@ -48,7 +51,7 @@ class TeacherForcingObjective(Objective):
         self.alpha = float(alpha)
 
     def _force(self, z_pred: torch.Tensor, x_obs_t: torch.Tensor) -> torch.Tensor:
-        """把观测注入预测潜状态。latent_dim == obs_dim 时整段混合；否则只混前 obs_dim 维。"""
+        """Inject observation into predicted latent state. Blend whole vector when latent_dim == obs_dim; otherwise only blend the first obs_dim dimensions."""
         M = z_pred.shape[-1]
         N = x_obs_t.shape[-1]
         if M == N:
@@ -58,16 +61,16 @@ class TeacherForcingObjective(Objective):
         return forced
 
     def compute_loss(self, model: NeuralDynamicsModel, batch):
-        X = batch["inputs"]                 # (B,T,N) 观测（=潜轨迹，DSR identity）
-        Y = batch["targets"]                # (B,T,N) 右移一位的观测
-        S = batch.get("external_inputs")    # (B,T,K) 或 None
+        X = batch["inputs"]                 # (B,T,N) observations (= latent trajectory, DSR identity)
+        Y = batch["targets"]                # (B,T,N) observations shifted right by one
+        S = batch.get("external_inputs")    # (B,T,K) or None
         B, T, N = X.shape
 
         s0 = S[:, 0] if S is not None else None
         M = model.config.latent_dim
         device = next(model.parameters()).device
-        # 当潜维 M == 观测维 N 时，直接用首观测初始化前一状态；
-        # 当 M != N 时，先用 model.init_state 初始化，再对前 N 维做 teacher forcing。
+        # When latent dim M == observation dim N, initialize previous state with the first observation;
+        # when M != N, initialize with model.init_state and apply teacher forcing only to the first N dims.
         if M == N:
             z = X[:, 0].to(device)
         else:
@@ -88,8 +91,8 @@ class TeacherForcingObjective(Objective):
             preds.append(z)
 
         Z = torch.stack(preds, dim=1)        # (B,T,M)
-        Yhat = model.readout(Z)              # identity 时即 Z
-        # 当潜维 M 与观测维 N 不一致时，只对前 N 维计算损失
+        Yhat = model.readout(Z)              # identity readout returns Z
+        # When latent dim M differs from observation dim N, compute loss only on the first N dimensions
         if Yhat.shape[-1] != Y.shape[-1]:
             Yhat = Yhat[..., :Y.shape[-1]]
         loss = F.mse_loss(Yhat, Y)

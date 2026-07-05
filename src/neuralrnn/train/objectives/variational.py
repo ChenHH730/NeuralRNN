@@ -1,11 +1,12 @@
-"""变分目标 ELBO（LFADS 范式，占位骨架）。
+"""Variational objective ELBO (LFADS paradigm, placeholder skeleton).
 
-对应 reference_project/LFADS-torch：序列变分自编码器，损失 = 重构对数似然(泊松/高斯)
-- KL(后验 || 先验)。移植时（PORTING_GUIDE 配方5）让 LFADS 模型在 forward 的
-DynamicsModelOutput.extras 里返回后验分布参数与重构率，由本目标组装 ELBO。
+Corresponds to reference_project/LFADS-torch: sequential variational autoencoder with
+loss = reconstruction log-likelihood (Poisson / Gaussian) - KL(posterior || prior).
+When porting (PORTING_GUIDE recipe 5), let the LFADS model return posterior distribution
+parameters and reconstruction rates in DynamicsModelOutput.extras, and this objective assembles the ELBO.
 
-约定：model(batch["inputs"]).extras 至少含
-    {"rates": (B,T,N), "posterior": <分布或其参数>, "prior": <分布或其参数>}
+Convention: model(batch["inputs"]).extras must contain at least
+    {"rates": (B,T,N), "posterior": <distribution or its parameters>, "prior": <distribution or its parameters>}
 """
 from __future__ import annotations
 
@@ -23,7 +24,7 @@ class VariationalObjective(Objective):
 
     def _recon_nll(self, rates: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         if self.likelihood == "poisson":
-            # 负泊松对数似然（rates 为强度）
+            # Negative Poisson log-likelihood (rates are intensities)
             return F.poisson_nll_loss(rates, target, log_input=False, full=False,
                                       reduction="mean")
         return F.mse_loss(rates, target)
@@ -33,15 +34,15 @@ class VariationalObjective(Objective):
         extras = out.extras or {}
         if "rates" not in extras:
             raise RuntimeError(
-                "VariationalObjective 需要模型在 output.extras 提供 'rates'/'kl'。"
-                "请按 PORTING_GUIDE 配方5 实现 LFADS 模型的 forward。"
+                "VariationalObjective requires the model to provide 'rates'/'kl' in output.extras. "
+                "Follow PORTING_GUIDE recipe 5 to implement the LFADS model forward."
             )
         target = batch["targets"]
         recon = self._recon_nll(extras["rates"], target)
-        # KL：优先用模型已算好的标量 kl；否则期望提供 posterior/prior 让此处计算（移植时补全）
+        # KL: prefer a scalar kl already computed by the model; otherwise expect posterior/prior to compute here (fill in when porting)
         kl = extras.get("kl")
         if kl is None:
-            kl = torch.zeros((), device=recon.device)  # TODO(移植): 由 posterior/prior 计算
+            kl = torch.zeros((), device=recon.device)  # TODO(port): compute from posterior / prior
         loss = recon + self.kl_weight * kl
         return loss, {"loss": loss.item(), "recon": float(recon),
                       "kl": float(kl), "kl_weight": self.kl_weight}

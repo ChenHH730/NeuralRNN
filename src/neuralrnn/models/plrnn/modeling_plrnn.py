@@ -1,15 +1,17 @@
-"""PLRNN 系列模型实现（范式 B 参考实现，演示解析 Jacobian / 解析不动点能力）。
+"""PLRNN family model implementations (Paradigm B reference implementation, demonstrating
+analytic Jacobian / analytic fixed-point capabilities).
 
-移植自 CNS2023_tutorial.ipynb 的 shallowPLRNN：
-    z_t = A ⊙ z_{t-1} + W1 ReLU(W2 z_{t-1} + h2) + h1 (+ C s_t)
-其解析 Jacobian：
+Ported from the shallowPLRNN:
+    z_t = A \odot z_{t-1} + W1 ReLU(W2 z_{t-1} + h2) + h1 (+ C s_t)
+Its analytic Jacobian:
     J(z) = diag(A) + W1 diag(1[W2 z + h2 > 0]) W2
-分段线性结构使不动点/ k-cycle 可解析求解（见 analysis/fixed_points.py 解析后端）。
+The piecewise-linear structure makes fixed points / k-cycles analytically solvable
+(see the analytic backend in analysis/fixed_points.py).
 
-本文件演示"契约 A + 解析能力"的标准写法：
+This file demonstrates the standard "Contract A + analytic capability" pattern:
   - supports_analytic_fixed_points = True
-  - 实现解析 jacobian（与基类自动微分对拍应一致）
-  - 暴露 (A, W1, W2, h1, h2) 供分析层的解析不动点算法使用
+  - implement analytic jacobian (should match base-class autodiff, except at ReLU boundaries)
+  - expose (A, W1, W2, h1, h2) for the analytic fixed-point algorithm in the analysis layer
 """
 from __future__ import annotations
 
@@ -32,7 +34,7 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
         r1, r2 = 1.0 / (L ** 0.5), 1.0 / (M ** 0.5)
         self.W1 = nn.Parameter(uniform_(torch.empty(M, L), -r1, r1))
         self.W2 = nn.Parameter(uniform_(torch.empty(L, M), -r2, r2))
-        self.A = nn.Parameter(uniform_(torch.empty(M), a=0.5, b=0.9))  # 对角
+        self.A = nn.Parameter(uniform_(torch.empty(M), a=0.5, b=0.9))  # diagonal
         self.h2 = nn.Parameter(uniform_(torch.empty(L), -r1, r1))
         self.h1 = nn.Parameter(torch.zeros(M))
         if config.autonomous:
@@ -54,35 +56,37 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
             groups["input"] = []
         return groups
 
-    # ---------------- 硬契约 ----------------
+    # ---------------- hard contract ----------------
     def recurrence(self, x_t, z_prev, *, inputs=None):
-        # z_prev:(B,M) -> z_t:(B,M)，与原 shallowPLRNN.forward 数值一致
+        # z_prev:(B,M) -> z_t:(B,M), numerically consistent with the original shallowPLRNN.forward
         z = self.A * z_prev + torch.relu(z_prev @ self.W2.T + self.h2) @ self.W1.T + self.h1
         if self.C is not None and x_t is not None:
             z = z + x_t @ self.C.T
         return z
 
     def readout(self, z_t):
-        # observation == "identity"：直接观测潜状态（DSR 标准设定）
+        # observation == "identity": directly observe latent state (standard DSR setting)
         return z_t
 
-    # ---------------- 解析分析支持 ----------------
+    # ---------------- analytic analysis support ----------------
     @property
     def supports_analytic_fixed_points(self) -> bool:
         return True
 
     def jacobian(self, z: torch.Tensor, *, inputs=None) -> torch.Tensor:
-        """解析 Jacobian：diag(A) + W1 diag(1[W2 z + h2 > 0]) W2。z:(M,) -> (M,M)。
-        与基类自动微分结果应 allclose（ReLU 边界除外）。"""
-        d = (self.W2 @ z > -self.h2).float()           # (L,) 指示向量
+        """Analytic Jacobian: diag(A) + W1 diag(1[W2 z + h2 > 0]) W2. z:(M,) -> (M,M).
+        Should be allclose to the base-class autodiff result (except at ReLU boundaries)."""
+        d = (self.W2 @ z > -self.h2).float()           # (L,) indicator vector
         return torch.diag(self.A) + self.W1 @ torch.diag(d) @ self.W2
 
     def analytic_parameters(self, task_input: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
-        """暴露解析不动点算法（scy_fi）所需参数，全部转 numpy 友好的 detached tensor。
-        analysis/fixed_points.py 的解析后端从这里取 (A_diag, W1, W2, h1, h2)。
+        """Expose parameters required by the analytic fixed-point solver (scy_fi),
+        all returned as numpy-friendly detached tensors.
+        The analytic backend in analysis/fixed_points.py reads (A_diag, W1, W2, h1, h2) from here.
 
-        若提供常值 task_input，则将其折叠到有效偏置 ``h1_eff = h1 + C @ task_input``
-        中，使非自治系统的解析求解 reuse 自治 SCYFI 求解器。
+        If a constant task_input is provided, it is folded into the effective bias
+        ``h1_eff = h1 + C @ task_input`` so that non-autonomous systems can reuse
+        the autonomous SCYFI solver.
         """
         h1_eff = self.h1
         if task_input is not None and self.C is not None:
@@ -91,7 +95,7 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
                 s = s.squeeze(0)
             h1_eff = h1_eff + self.C @ s
         return {
-            "A": torch.diag(self.A).detach(),     # (M,M) 对角化，匹配原 main(np.diag(A),...) 期望
+            "A": torch.diag(self.A).detach(),     # (M,M) diagonalized, matching original main(np.diag(A),...) expectation
             "W1": self.W1.detach(),
             "W2": self.W2.detach(),
             "h1": h1_eff.detach(),

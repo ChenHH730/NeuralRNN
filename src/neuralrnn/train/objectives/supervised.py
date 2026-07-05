@@ -1,12 +1,12 @@
-"""监督目标（范式 A：任务优化 RNN）。
+"""Supervised objective (Paradigm A: task-optimized RNN).
 
-对应 RNN_DynamicalSystemAnalysis.ipynb / EI_RNN 的训练：把 batch 的 inputs 喂给
-模型整段 rollout，readout 输出与 targets 做损失。
+Corresponds to training in RNN_DynamicalSystemAnalysis.ipynb / EI_RNN: feed the batch inputs to
+the model for a full rollout, and compute the loss between readout outputs and targets.
 
-- 分类任务（neurogym 决策/记忆）：targets 为 (B,T) 类别索引，用 CrossEntropy；
-  输出 (B,T,C) 展平到 (B*T,C)。
-- 回归任务：targets 为 (B,T,output_dim)，用 MSE。
-可选 mask (B,T) 仅在有效时间步计损失。
+- Classification tasks (neurogym decision / memory): targets are (B,T) class indices, use CrossEntropy;
+  outputs (B,T,C) are reshaped to (B*T,C).
+- Regression tasks: targets are (B,T,output_dim), use MSE.
+Optional mask (B,T) counts loss only at valid time steps.
 """
 from __future__ import annotations
 

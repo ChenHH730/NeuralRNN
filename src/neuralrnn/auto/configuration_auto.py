@@ -1,6 +1,6 @@
-"""AutoConfig + 配置注册表（≈ transformers.AutoConfig）。
+"""AutoConfig + config registry (≈ transformers.AutoConfig).
 
-按 config.json 中的 model_type 字段，分发到正确的 <Family>Config 子类。
+Dispatch to the correct <Family>Config subclass based on the model_type field in config.json.
 """
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import os
 
 from ..configuration_utils import NeuralRNNConfig, CONFIG_FILE_NAME
 
-# model_type(str) -> Config 子类。由 register_model（见 modeling_auto）或手动填充。
+# model_type(str) -> Config subclass. Populated by register_model (see modeling_auto) or manually.
 CONFIG_REGISTRY: dict[str, type[NeuralRNNConfig]] = {}
 
 
@@ -30,17 +30,18 @@ def _read_model_type(path: str) -> str:
 def _ensure_config_loaded(model_type: str) -> None:
     if model_type in CONFIG_REGISTRY:
         return
-    # 触发对应模型模块导入，使其 config 被注册（与 modeling_auto 的懒加载共用映射）
+    # Trigger import of the corresponding model module so its config gets registered
+    # (shares the lazy mapping with modeling_auto)
     from .modeling_auto import _ensure_loaded
     _ensure_loaded(model_type)
 
 
 class AutoConfig:
-    """配置工厂。"""
+    """Config factory."""
 
     @staticmethod
     def for_model(model_type: str, **kwargs) -> NeuralRNNConfig:
-        """按 model_type 构造一个新配置（带覆盖参数）。"""
+        """Build a new config by model_type (with optional overrides)."""
         _ensure_config_loaded(model_type)
         return CONFIG_REGISTRY[model_type](**kwargs)
 

@@ -1,6 +1,6 @@
-"""可解释性分析层：不动点 / 线性化 / 向量场 / 降维 / 重构指标 / Lyapunov / 流形 / 线吸引子 / 群体结构。
+"""Interpretability analysis layer: fixed points / linearization / vector field / dimensionality reduction / reconstruction metrics / Lyapunov / manifolds / line attractor / population structure.
 
-铁律：本层只通过模型公共契约工作，不 import 任何具体模型类（见 PORTING_GUIDE 契约D）。
+Golden rule: this layer only works through the model's public contract and does not import any concrete model classes (see PORTING_GUIDE contract D).
 """
 from .linalg_utils import (
     phi_prime,

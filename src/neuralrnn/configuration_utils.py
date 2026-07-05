@@ -1,11 +1,11 @@
-"""配置系统基类（≈ transformers.PretrainedConfig）。
+"""Configuration system base class (≈ transformers.PretrainedConfig).
 
-所有模型的配置都继承 NeuralRNNConfig。设计目标：
-- config 是模型结构与超参的*单一真相源*，可序列化为 config.json。
-- 通过 model_type 字段在 AutoConfig 注册表中分发。
+All model configs inherit NeuralRNNConfig. Design goals:
+- config is the *single source of truth* for model structure and hyperparameters, serializable to config.json.
+- Dispatch via the model_type field in the AutoConfig registry.
 
-移植者注意：把论文模型的所有构造超参都搬进对应的 <Family>Config 子类，
-不要在模型 __init__ 里硬编码任何结构参数。
+Porters note: move all construction hyperparameters of the paper model into the corresponding
+<Family>Config subclass; do not hard-code any structural parameters in the model's __init__.
 """
 from __future__ import annotations
 
@@ -18,18 +18,19 @@ CONFIG_FILE_NAME = "config.json"
 
 
 class NeuralRNNConfig:
-    """所有动力系统模型配置的基类。
+    """Base class for all dynamical-system model configs.
 
-    公共字段对应 ARCHITECTURE §2.1 的动力系统三元组 (F, G, 初值) 的维度：
-        input_dim  : 外部输入维度 K（无输入则 0）
-        latent_dim : 潜状态维度 M
-        output_dim : 读出维度（DSR 中通常 == latent_dim）
-        dt         : 连续时间模型的离散步长（离散模型为 None）
-        activation : 非线性名称
-    子类只需在 __init__ 中 super().__init__(...) 后追加自己的字段。
+    Public fields correspond to the dimensions of the dynamical-system triple (F, G, initial value)
+    in ARCHITECTURE §2.1:
+        input_dim  : external input dimension K (0 if no input)
+        latent_dim : latent state dimension M
+        output_dim : readout dimension (usually == latent_dim in DSR)
+        dt         : discretization step for continuous-time models (None for discrete models)
+        activation : nonlinearity name
+    Subclasses only need to add their own fields after super().__init__(...).
     """
 
-    model_type: str = ""  # 子类必填，全局唯一注册键，如 "shallow_plrnn"
+    model_type: str = ""  # subclasses must set this; globally unique registry key, e.g. "shallow_plrnn"
 
     def __init__(
         self,
@@ -53,11 +54,11 @@ class NeuralRNNConfig:
         self.freeze_recurrent = freeze_recurrent
         self.freeze_output = freeze_output
         self.freeze_h0 = freeze_h0
-        # 透传未知字段，保证向前兼容（旧 checkpoint 多出的字段不报错）
+        # Forward unknown fields for forward compatibility (extra fields in old checkpoints do not error)
         for k, v in kwargs.items():
             setattr(self, k, v)
 
-    # ---------- 序列化 ----------
+    # ---------- Serialization ----------
     def to_dict(self) -> dict[str, Any]:
         d = {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
         d["model_type"] = self.model_type
@@ -76,7 +77,7 @@ class NeuralRNNConfig:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "NeuralRNNConfig":
         d = dict(d)
-        d.pop("model_type", None)  # 由具体子类自带
+        d.pop("model_type", None)  # carried by the concrete subclass itself
         return cls(**d)
 
     @classmethod
@@ -86,8 +87,8 @@ class NeuralRNNConfig:
 
     @classmethod
     def from_pretrained(cls, path: str) -> "NeuralRNNConfig":
-        """从目录或 config.json 路径读取。若在基类上调用，请用 AutoConfig 以按
-        model_type 分发到正确子类。"""
+        """Read from a directory or a config.json path. When calling on the base class, use AutoConfig so that
+        model_type is dispatched to the correct subclass."""
         path = os.fspath(path)
         json_file = path if path.endswith(".json") else os.path.join(path, CONFIG_FILE_NAME)
         return cls.from_json_file(json_file)

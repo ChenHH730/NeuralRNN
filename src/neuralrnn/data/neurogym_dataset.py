@@ -1,11 +1,11 @@
-"""Neurogym 任务数据集（范式 A / 任务优化）。
+"""Neurogym task dataset (Paradigm A / task optimization).
 
-移植自 RNN_DynamicalSystemAnalysis.ipynb 的取数方式：用 neurogym 构造认知任务
-环境，包成 PyTorch dataloader，按 batch 产出 (inputs, targets)。这里在边界统一
-转成 batch-first 的标准 batch dict（ARCHITECTURE §3.1 范式A）。
+Ported from the data-extraction style of RNN_DynamicalSystemAnalysis.ipynb: build a cognitive-task
+environment with neurogym, wrap it as a PyTorch dataloader, and yield (inputs, targets) per batch.
+Here we convert to the batch-first standard batch dict at the boundary (ARCHITECTURE §3.1 Paradigm A).
 
-neurogym 为可选重依赖（见 pyproject [project.optional-dependencies] neurogym），
-未安装时给出清晰提示。
+neurogym is an optional heavy dependency (see pyproject [project.optional-dependencies] neurogym);
+a clear hint is shown when not installed.
 """
 from __future__ import annotations
 
@@ -22,8 +22,8 @@ class NeurogymDataset(BaseDataset):
 
     def __init__(self, env, dataset, input_dim: int, output_dim: int,
                  batch_size: int = 16, seq_len: int = 100):
-        self.env = env                 # 保留底层 env，分析时取任务相关输入（如 0-coherence 均值输入）
-        self._dataset = dataset        # neurogym Dataset（可调用，返回 (inputs, target) time-first）
+        self.env = env                 # Keep underlying env for task-related input during analysis (e.g., mean input at 0-coherence)
+        self._dataset = dataset        # neurogym Dataset (callable, returns (inputs, target) time-first)
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.batch_size = batch_size
@@ -32,16 +32,16 @@ class NeurogymDataset(BaseDataset):
     @classmethod
     def from_task(cls, task: str, *, batch_size: int = 16, seq_len: int = 100,
                   dt: int = 100, timing: dict | None = None, **env_kwargs: Any) -> "NeurogymDataset":
-        """用任务名构造数据集，例如 task='PerceptualDecisionMaking-v0'。
+        """Construct dataset from a task name, e.g. task='PerceptualDecisionMaking-v0'.
 
-        被 data/registry.py 的 load_dataset('perceptual_decision_making') 调用。
-        额外 kwargs 透传给 neurogym 环境（dt / timing / 任务专属参数）。
+        Called by load_dataset('perceptual_decision_making') in data/registry.py.
+        Extra kwargs are forwarded to the neurogym environment (dt / timing / task-specific parameters).
         """
         try:
             import neurogym as ngym
         except ImportError as e:
             raise ImportError(
-                "需要 neurogym：pip install 'neuralrnn[neurogym]' 或 pip install neurogym"
+                "neurogym is required: pip install 'neuralrnn[neurogym]' or pip install neurogym"
             ) from e
 
         kwargs = dict(env_kwargs)
@@ -51,20 +51,20 @@ class NeurogymDataset(BaseDataset):
                                batch_size=batch_size, seq_len=seq_len)
         env = dataset.env
         input_dim = env.observation_space.shape[0]
-        # 分类任务用 n 类（CrossEntropy 目标）；回归任务用维度
+        # Classification tasks use n classes (CrossEntropy target); regression tasks use dimension
         output_dim = int(getattr(env.action_space, "n", None)
                          or env.action_space.shape[0])
         return cls(env, dataset, input_dim, output_dim,
                    batch_size=batch_size, seq_len=seq_len)
 
     def sample_batch(self) -> dict[str, torch.Tensor]:
-        # neurogym Dataset() 返回 time-first: inputs (T,B,obs), target (T,B)
+        # neurogym Dataset() returns time-first: inputs (T,B,obs), target (T,B)
         inputs, target = self._dataset()
         inputs = torch.as_tensor(inputs, dtype=torch.float32).permute(1, 0, 2)  # -> (B,T,obs)
         target = torch.as_tensor(np.asarray(target), dtype=torch.long).permute(1, 0)  # -> (B,T)
         return {"inputs": inputs, "targets": target, "mask": None}
 
     def task_input(self, kind: str = "stimulus") -> torch.Tensor:
-        """返回用于不动点分析的"任务条件输入"（如决策任务的 0-coherence 均值输入）。
-        默认返回零输入；具体任务在移植时按需覆盖（见 PORTING_GUIDE 配方1）。"""
+        """Return the 'task-condition input' for fixed-point analysis (e.g., mean input at 0-coherence for decision tasks).
+        Defaults to zero input; override per task during porting as needed (see PORTING_GUIDE recipe 1)."""
         return torch.zeros(self.input_dim, dtype=torch.float32)

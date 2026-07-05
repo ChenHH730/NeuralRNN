@@ -1,7 +1,8 @@
-"""训练超参容器（≈ transformers.TrainingArguments）。
+"""Training hyperparameter container (≈ transformers.TrainingArguments).
 
-所有训练相关超参集中在此 dataclass，由 Trainer 读取。范式特异的超参（如 GTF 的
-forcing 强度 alpha、LFADS 的 KL 权重）放在对应 Objective 的配置里，保持 Trainer 通用。
+All training-related hyperparameters are centralized in this dataclass and read by Trainer.
+Paradigm-specific hyperparameters (e.g., GTF forcing strength alpha, LFADS KL weight) belong
+in the corresponding Objective's config, keeping Trainer generic.
 """
 from __future__ import annotations
 
@@ -10,44 +11,45 @@ from dataclasses import dataclass, field, asdict
 
 @dataclass
 class TrainingArguments:
-    # —— 优化 ——
+    # -- Optimization --
     learning_rate: float = 1e-3
     weight_decay: float = 0.0
-    max_steps: int = 1000              # DSR/任务常按 step 计（一个 batch 一 step）
+    max_steps: int = 1000              # DSR / tasks are usually step-based (one batch = one step)
     batch_size: int = 16
-    grad_clip_norm: float | None = 1.0  # 梯度裁剪；None 关闭
+    grad_clip_norm: float | None = 1.0  # gradient clipping; None disables
     optimizer: str = "adam"            # adam / adamw / sgd
 
-    # —— 调度 ——
+    # -- Scheduling --
     lr_scheduler: str | None = None    # None / "cosine" / "step"
     warmup_steps: int = 0
 
-    # —— 日志 / 评估 / 存储 ——
+    # -- Logging / evaluation / checkpointing --
     log_every: int = 50
-    eval_every: int | None = None      # None 表示不在训练中评估
+    eval_every: int | None = None      # None means no evaluation during training
     save_every: int | None = None
     output_dir: str = "./outputs"
     device: str = "cpu"                # "cpu" / "cuda" / "cuda:0"
     seed: int = 0
 
-    # —— Dropout（训练时隐藏状态正则化）——
-    # 灵感来自 trainRNNbrain：mask 采样一次，整个 rollout 复用（"dead neuron" 方式）。
-    # dropout_rate=0 关闭（默认）。推荐范围：0.05–0.2。
-    # dropout_sampling: "uniform"（等概率）/ "participation"（按参与度加权）/ "output_weights"（按输出权重加权）
+    # -- Dropout (hidden-state regularization during training) --
+    # Inspired by trainRNNbrain: sample a mask once and reuse it across the whole rollout
+    # ("dead neuron" style). dropout_rate=0 disables (default). Recommended range: 0.05-0.2.
+    # dropout_sampling: "uniform" (equal probability) / "participation" (weighted by participation) /
+    #                   "output_weights" (weighted by output weights)
     dropout_rate: float = 0.0
     dropout_sampling: str = "uniform"
-    dropout_beta: float = 1.0           # softmax 温度（非 uniform 采样时控制集中度）
+    dropout_beta: float = 1.0           # softmax temperature (controls concentration for non-uniform sampling)
 
-    # —— 早停 & 最佳模型保存 ——
-    early_stop_loss: float | None = None   # 训练损失低于此值即停止（与 eval_metric 二选一）
-    keep_best: bool = False               # 保留训练中损失最低的模型权重
-    # 基于验证指标的早停 / 最佳模型（需要传入 eval_fn 且 eval_every > 0）
-    eval_metric: str | None = None         # eval_fn 返回 dict 中用于早停的 key
-    greater_is_better: bool = False        # eval_metric 是否越大越好
-    early_stopping_patience: int | None = None  # 连续多少次 eval 无改善则停止；None 表示不启用
+    # -- Early stopping & best-model saving --
+    early_stop_loss: float | None = None   # stop when training loss falls below this (mutually exclusive with eval_metric)
+    keep_best: bool = False               # keep the model weights with the lowest training loss
+    # Metric-based early stopping / best model (requires eval_fn and eval_every > 0)
+    eval_metric: str | None = None         # key in eval_fn's returned dict used for early stopping
+    greater_is_better: bool = False        # whether a larger eval_metric is better
+    early_stopping_patience: int | None = None  # number of evals without improvement before stopping; None disables
 
-    # —— 课程式 forcing（GTF / teacher forcing 退火，可选）——
-    # 若 Objective 支持 alpha 退火，可由 Trainer 在训练中读取并更新
+    # -- Curriculum forcing (GTF / teacher-forcing annealing, optional) --
+    # If the Objective supports alpha annealing, Trainer reads and updates it during training
     anneal_forcing: bool = False
     forcing_start: float = 1.0
     forcing_end: float = 0.0

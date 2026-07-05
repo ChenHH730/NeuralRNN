@@ -1,11 +1,14 @@
-"""动力学重构评估指标：D_stsp 与 D_H（移植自 CNS2023_tutorial.ipynb）。
+"""Dynamical reconstruction evaluation metrics: D_stsp and D_H (ported from CNS2023_tutorial.ipynb).
 
-D_stsp（state space divergence）：比较生成轨迹与真实轨迹在状态空间的分布散度。
-    - binning 版：直方图 + Laplace 平滑 + KL
-    - gmm 版：高斯混合的蒙特卡洛 KL（高维更稳）
-D_H（power spectrum distance）：逐维比较功率谱的 Hellinger 距离均值，刻画时间结构。
+D_stsp (state-space divergence): compares the distributional divergence between generated and real
+trajectories in state space.
+    - binning version: histogram + Laplace smoothing + KL
+    - gmm version: Monte-Carlo KL with Gaussian mixtures (more stable in high dimensions)
+D_H (power-spectrum distance): dimension-wise mean Hellinger distance between power spectra,
+characterizing temporal structure.
 
-两者均在 numpy / torch 上无依赖地实现，可直接用于训练评估或论文复现。
+Both are implemented purely in numpy / torch without extra dependencies and can be used directly for
+training evaluation or paper reproduction.
 """
 from __future__ import annotations
 
@@ -14,7 +17,7 @@ import torch
 from scipy.ndimage import gaussian_filter1d
 
 
-# ============================ D_H：功率谱 Hellinger ============================
+# ============================ D_H: power-spectrum Hellinger ============================
 def _smoothed_power_spectrum(x: np.ndarray, smoothing: float) -> np.ndarray:
     x_ = (x - x.mean()) / x.std()
     ps = np.abs(np.fft.rfft(x_)) ** 2 * 2 / len(x_)
@@ -27,7 +30,7 @@ def hellinger_distance(p: np.ndarray, q: np.ndarray) -> float:
 
 
 def power_spectrum_error(X: np.ndarray, X_gen: np.ndarray, smoothing: float = 20.0) -> float:
-    """D_H：逐维功率谱 Hellinger 距离的均值。X, X_gen: (T, N)。"""
+    """D_H: mean dimension-wise Hellinger distance between power spectra. X, X_gen: (T, N)."""
     X = np.asarray(X)
     X_gen = np.asarray(X_gen)
     dists = []
@@ -38,7 +41,7 @@ def power_spectrum_error(X: np.ndarray, X_gen: np.ndarray, smoothing: float = 20
     return float(np.mean(dists))
 
 
-# ============================ D_stsp：状态空间散度 ============================
+# ============================ D_stsp: state-space divergence ============================
 def _calc_histogram(x: torch.Tensor, n_bins: int, min_, max_) -> torch.Tensor:
     dim_x = x.shape[1]
     coords = (n_bins * (x - min_) / (max_ - min_)).long()
@@ -63,7 +66,7 @@ def _kl(p1, p2):
 
 
 def state_space_divergence_binning(x_gen, x_true, n_bins: int = 30) -> float:
-    """D_stsp（分箱版）：低维（≲4）时首选。x_*: (T,N)。"""
+    """D_stsp (binning version): preferred for low dimensions (≲4). x_*: (T,N)."""
     xt = torch.as_tensor(np.asarray(x_true), dtype=torch.float32)
     xg = torch.as_tensor(np.asarray(x_gen), dtype=torch.float32)
     mn, mx = xt.min(0).values, xt.max(0).values
@@ -86,7 +89,7 @@ def _gmm_likelihood(z, mu, std):
 
 def state_space_divergence_gmm(x_gen, x_true, scaling: float = 1.0,
                                max_used: int = 10000, mc_n: int = 1000) -> float:
-    """D_stsp（GMM 蒙特卡洛版）：高维更稳。x_*: (T,N)。"""
+    """D_stsp (GMM Monte-Carlo version): more stable in high dimensions. x_*: (T,N)."""
     X_true = torch.as_tensor(np.asarray(x_true), dtype=torch.float32)
     X_gen = torch.as_tensor(np.asarray(x_gen), dtype=torch.float32)
     T = min(X_true.shape[0], max_used)
@@ -104,7 +107,7 @@ def state_space_divergence_gmm(x_gen, x_true, scaling: float = 1.0,
 
 
 def state_space_divergence(x_gen, x_true, method: str = "auto", **kwargs) -> float:
-    """统一入口：维度 ≤ 4 走 binning，否则走 gmm（可用 method 强制）。"""
+    """Unified entry point: use binning when dimension ≤ 4, otherwise gmm (can be overridden with method)."""
     dim = np.asarray(x_true).shape[-1]
     if method == "binning" or (method == "auto" and dim <= 4):
         return state_space_divergence_binning(x_gen, x_true,

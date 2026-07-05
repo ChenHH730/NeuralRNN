@@ -1,4 +1,4 @@
-"""数据层：统一 batch 格式、数据集类、开源数据集注册表与下载缓存。"""
+"""Data layer: unified batch format, dataset classes, open-dataset registry and download cache."""
 from .base import BaseDataset, StandardScaler
 from .timeseries_dataset import TimeSeriesDataset
 from .custom_dataset import CustomDataset
@@ -20,7 +20,7 @@ __all__ = [
 
 
 def __getattr__(name):
-    # NeurogymDataset 依赖可选包 neurogym，按需懒加载
+    # NeurogymDataset depends on the optional package neurogym; load lazily on demand
     if name == "NeurogymDataset":
         from .neurogym_dataset import NeurogymDataset
         return NeurogymDataset

@@ -1,12 +1,13 @@
-"""行为拟合目标（Tiny RNN 范式）。
+"""Behavior-fitting objective (Tiny RNN paradigm).
 
-对应 01-fitting-generated-data.ipynb：用小 GRU 拟合被试在 bandit 等任务上的逐试次
-选择，预测下一步动作的对数几率，做 CrossEntropy。与监督目标的区别在于输入/目标语义
-（行为序列）以及常配合嵌套交叉验证（见 train/cv.py 与 PORTING_GUIDE 配方7）。
+Corresponds to 01-fitting-generated-data.ipynb: use a small GRU to fit subjects' trial-by-trial
+choices in bandit-like tasks, predicting the log-odds of the next action with CrossEntropy.
+Differs from the supervised objective in input / target semantics (behavioral sequences) and is
+often combined with nested cross-validation (see train/cv.py and PORTING_GUIDE recipe 7).
 
-标准 batch（ARCHITECTURE §3.1 行为）：
-    {"inputs": (B,T,input_dim) 编码的历史(动作/奖励...),
-     "targets": (B,T) 下一步动作类别, "mask": (B,T)|None}
+Standard batch (ARCHITECTURE §3.1 behavior):
+    {"inputs": (B,T,input_dim) encoded history (action/reward...),
+     "targets": (B,T) next-action class, "mask": (B,T)|None}
 """
 from __future__ import annotations
 
@@ -18,11 +19,12 @@ from ...modeling_utils import NeuralDynamicsModel
 
 
 class BehavioralObjective(Objective):
-    """预测下一步动作的负对数似然。readout 输出动作 logits。
+    """Negative log-likelihood of the next action. Readout outputs action logits.
 
-    支持 tiny_rnn 的 ``output_h0=True`` 配置：当模型输出长度比 target 多 1 时，
-    自动取 ``logits[:, :-1]`` 与 target 对齐（匹配原项目 ``scores[:-1]``）。
-    若 config 中存在 ``l1_weight`` 且模型提供 ``get_l1_loss()``，则将该 L1 项加入 loss。
+    Supports tiny_rnn's ``output_h0=True`` config: when the model output length is one greater
+    than target length, automatically take ``logits[:, :-1]`` to align with target
+    (matching the original project's ``scores[:-1]``).
+    If ``l1_weight`` exists in config and the model provides ``get_l1_loss()``, the L1 term is added to loss.
     """
 
     def compute_loss(self, model: NeuralDynamicsModel, batch):

@@ -1,11 +1,11 @@
-"""AutoModel + 模型注册表（≈ transformers.AutoModel）。
+"""AutoModel + model registry (≈ transformers.AutoModel).
 
-新模型接入只需在其 modeling 文件里：
+To add a new model, just write in its modeling file:
     @register_model("my_family")
     class MyModel(NeuralDynamicsModel):
         config_class = MyConfig
         ...
-注册后全局可通过 AutoModel.from_config / from_pretrained 实例化。
+After registration it can be instantiated globally via AutoModel.from_config / from_pretrained.
 """
 from __future__ import annotations
 
@@ -15,11 +15,11 @@ import os
 from ..modeling_utils import NeuralDynamicsModel
 from .configuration_auto import AutoConfig, CONFIG_REGISTRY
 
-# model_type(str) -> 模型类
+# model_type(str) -> model class
 MODEL_REGISTRY: dict[str, type[NeuralDynamicsModel]] = {}
 
-# Lazy modules mapping：model_type -> "模块路径"。避免导入时把所有重依赖模型一次性加载。
-# 移植新模型后在此登记一行即可（也可在模型模块被导入时由 @register_model 直接填充）。
+# Lazy module mapping: model_type -> "module.path". Avoids loading all heavy-dependency models at import time.
+# Add one line here after porting a new model (or let the model module fill it directly via @register_model).
 _LAZY_MODULES: dict[str, str] = {
     "ctrnn": "neuralrnn.models.ctrnn.modeling_ctrnn",
     "ei_rnn": "neuralrnn.models.ctrnn.modeling_ctrnn",
@@ -29,13 +29,13 @@ _LAZY_MODULES: dict[str, str] = {
     "latent_circuit": "neuralrnn.models.latent_circuit.modeling_latent_circuit",
     "tiny_rnn": "neuralrnn.models.tiny_rnn.modeling_tiny_rnn",
     "lowrank_rnn": "neuralrnn.models.lowrank.modeling_lowrank",
-    # 移植后追加：
+    # Add after porting:
     # "lfads": "neuralrnn.models.lfads.modeling_lfads",
 }
 
 
 def register_model(model_type: str):
-    """装饰器：把模型类登记到 MODEL_REGISTRY，并把其 config 类登记到 CONFIG_REGISTRY。"""
+    """Decorator: register a model class in MODEL_REGISTRY and its config class in CONFIG_REGISTRY."""
     def deco(cls: type[NeuralDynamicsModel]):
         MODEL_REGISTRY[model_type] = cls
         if getattr(cls, "config_class", None) is not None:
@@ -50,15 +50,15 @@ def _ensure_loaded(model_type: str) -> None:
     module_path = _LAZY_MODULES.get(model_type)
     if module_path is None:
         raise KeyError(
-            f"未知 model_type='{model_type}'。已注册: {sorted(set(MODEL_REGISTRY) | set(_LAZY_MODULES))}。"
-            f" 若是新移植模型，请在 _LAZY_MODULES 登记或确保其模块已被 import。")
-    importlib.import_module(module_path)  # 触发 @register_model 填充
+            f"Unknown model_type='{model_type}'. Registered: {sorted(set(MODEL_REGISTRY) | set(_LAZY_MODULES))}."
+            f" If this is a newly ported model, register it in _LAZY_MODULES or ensure its module is imported.")
+    importlib.import_module(module_path)  # trigger @register_model population
     if model_type not in MODEL_REGISTRY:
-        raise KeyError(f"模块 {module_path} 未注册 model_type='{model_type}'，检查 @register_model 装饰。")
+        raise KeyError(f"Module {module_path} did not register model_type='{model_type}'; check the @register_model decorator.")
 
 
 class AutoModel:
-    """按 model_type 分发的模型工厂。"""
+    """Model factory dispatched by model_type."""
 
     @staticmethod
     def from_config(config) -> NeuralDynamicsModel:

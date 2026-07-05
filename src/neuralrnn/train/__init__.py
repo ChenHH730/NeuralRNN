@@ -1,4 +1,4 @@
-"""训练层：通用 Trainer + 范式化 Objective + 嵌套交叉验证。"""
+"""Training layer: generic Trainer + paradigm-specific Objectives + nested cross-validation."""
 from .trainer import Trainer
 from .training_args import TrainingArguments
 from .objectives import (

@@ -1,15 +1,15 @@
-"""数据集下载 / 缓存 / 解压 / 校验工具。
+"""Dataset download / cache / unpack / verification utilities.
 
-被 data/registry.py 的 load_dataset() 调用。设计目标：把每篇论文 notebook 里
-散落的 wget / Dataverse / Zenodo 链接，统一成"声明式下载"——只在 DatasetSpec
-里写 URL 与文件名，真正的下载/缓存/解压/校验逻辑全部收敛到这里。
+Called by load_dataset() in data/registry.py. Design goal: turn the scattered wget / Dataverse / Zenodo links
+in each paper's notebook into a declarative download—only write the URL and filename in DatasetSpec,
+and converge the actual download / cache / unpack / verification logic here.
 
-缓存目录优先级：
-    1. 环境变量 NEURALRNN_CACHE
+Cache directory priority:
+    1. Environment variable NEURALRNN_CACHE
     2. ~/.cache/neuralrnn/datasets
 
-注意：本仓库运行环境可能禁用网络。本文件是"可运行模板"：在有网环境直接可用；
-无网时若缓存已存在则直接命中，否则抛出清晰的错误提示用户手动放置文件。
+Note: the repository runtime may disable network. This file is a runnable template: it works directly online;
+when offline, it returns from cache if present, otherwise raises a clear error asking the user to place the file manually.
 """
 from __future__ import annotations
 
@@ -43,14 +43,14 @@ def _download(url: str, dst: Path) -> None:
     if dst.exists():
         return
     dst.parent.mkdir(parents=True, exist_ok=True)
-    print(f"[neuralrnn] 下载 {url}\n          -> {dst}")
+    print(f"[neuralrnn] Downloading {url}\n          -> {dst}")
     try:
         with urllib.request.urlopen(url) as resp, open(dst, "wb") as f:  # noqa: S310
             shutil.copyfileobj(resp, f)
-    except Exception as e:  # 网络禁用 / 链接失效
+    except Exception as e:  # Network disabled / invalid link
         raise RuntimeError(
-            f"下载失败：{url}\n"
-            f"若处于无网环境，请手动把文件放到：{dst}\n原始错误：{e}"
+            f"Download failed: {url}\n"
+            f"If you are offline, please place the file manually at: {dst}\nOriginal error: {e}"
         ) from e
 
 
@@ -63,19 +63,19 @@ def _unpack(archive: Path, kind: str, out_dir: Path) -> None:
         with tarfile.open(archive) as t:
             t.extractall(out_dir)  # noqa: S202
     else:
-        raise ValueError(f"未知解压类型: {kind}")
+        raise ValueError(f"Unknown archive type: {kind}")
 
 
 def ensure_files(spec: DatasetSpec) -> dict[str, str]:
-    """确保 spec 所需文件已就绪，返回 {逻辑名: 本地绝对路径}。
+    """Ensure the files required by spec are ready and return {logical_name: local absolute path}.
 
-    约定（与 registry.load_dataset 对接）：
-      - spec.files 给定 {逻辑名: 文件名} 时，返回同名 key 的本地路径字典；
-        load_dataset 会把它们转成 `<逻辑名>_path=...` 关键字传给 loader。
-      - 否则返回 {"file": 单文件路径}。
+    Conventions (matching registry.load_dataset):
+      - When spec.files gives {logical_name: filename}, return a local-path dict with the same keys;
+        load_dataset will convert them to `<logical_name>_path=...` keyword arguments passed to loader.
+      - Otherwise return {"file": single-file path}.
     """
-    assert spec.url is not None, "需要下载的数据集必须提供 spec.url"
-    # 每个数据集一个子目录，名取自 URL/文件名，保证幂等
+    assert spec.url is not None, "A dataset that needs downloading must provide spec.url"
+    # One subdirectory per dataset, named from the URL/filename for idempotence
     key = spec.filename or Path(spec.url).name or "dataset"
     ds_dir = cache_root() / Path(key).stem
     ds_dir.mkdir(parents=True, exist_ok=True)
@@ -87,21 +87,21 @@ def ensure_files(spec: DatasetSpec) -> dict[str, str]:
     if spec.sha256:
         got = _sha256(archive_path)
         if got != spec.sha256:
-            raise RuntimeError(f"{archive_path} 校验失败：期望 {spec.sha256}，实得 {got}")
+            raise RuntimeError(f"{archive_path} checksum failed: expected {spec.sha256}, got {got}")
 
     if spec.unpack:
         _unpack(archive_path, spec.unpack, ds_dir)
 
-    # 解析逻辑名 -> 本地路径
+    # Map logical name -> local path
     if spec.files:
         out: dict[str, str] = {}
         for logical, fname in spec.files.items():
-            # 文件可能在解压根目录或其子目录里：递归找第一个匹配名
+            # File may be in the unpack root or a subdirectory: recursively find the first match
             cand = ds_dir / fname
             if not cand.exists():
                 matches = list(ds_dir.rglob(fname))
                 if not matches:
-                    raise FileNotFoundError(f"解压后未找到 {fname}（于 {ds_dir}）")
+                    raise FileNotFoundError(f"{fname} not found after extraction (in {ds_dir})")
                 cand = matches[0]
             out[logical] = str(cand.resolve())
         return out

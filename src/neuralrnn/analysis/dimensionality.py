@@ -1,8 +1,10 @@
-"""降维分析（PCA 等）与轨迹收集工具。
+"""Dimensionality-reduction analysis (PCA, etc.) and trajectory collection utilities.
 
-对应 RNN_DynamicalSystemAnalysis.ipynb 中对网络活动做 PCA、把不动点/轨迹投影到
-PC 平面可视化的流程。提供：收集模型在一批输入下的潜轨迹、拟合 PCA、把任意点
-（轨迹/不动点/向量场网格）投影到同一坐标系，确保多种分析叠加在一致的低维空间里。
+Corresponds to the RNN_DynamicalSystemAnalysis.ipynb workflow of performing PCA on network activity and
+projecting fixed points / trajectories onto the PC plane for visualization. Provides: collecting latent
+trajectories of a model under a batch of inputs, fitting PCA, and projecting arbitrary points
+(trajectories / fixed points / vector-field grids) into the same coordinate system, ensuring that multiple
+analyses are overlaid in a consistent low-dimensional space.
 """
 from __future__ import annotations
 
@@ -29,7 +31,7 @@ class PCAResult:
 
 
 def fit_pca(X: np.ndarray, n_components: int = 2) -> PCAResult:
-    """对 (N, M) 状态矩阵做 PCA（SVD 实现，无 sklearn 依赖）。"""
+    """Perform PCA on an (N, M) state matrix (SVD implementation, no sklearn dependency)."""
     X = np.asarray(X, dtype=np.float64)
     mean = X.mean(0)
     Xc = X - mean
@@ -42,7 +44,8 @@ def fit_pca(X: np.ndarray, n_components: int = 2) -> PCAResult:
 
 @torch.no_grad()
 def collect_states(model: NeuralDynamicsModel, dataset, n_batches: int = 1) -> np.ndarray:
-    """跑若干 batch，收集潜轨迹并展平成 (N_points, M)，供 PCA/向量场使用。"""
+    """Run several batches, collect latent trajectories, and flatten them into (N_points, M) for PCA /
+    vector-field use."""
     model.eval()
     chunks = []
     for _ in range(n_batches):

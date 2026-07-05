@@ -1,8 +1,9 @@
-"""不动点局部线性化与分类。
+"""Fixed-point local linearization and classification.
 
-围绕模型的 jacobian 契约，提供：在某状态处取 Jacobian、特征分解、稳定性分类、
-主特征方向（用于画线吸引子/慢流形方向，见 RNN_DynamicalSystemAnalysis.ipynb 中
-对 jac 做特征分解并取最大特征值方向画线吸引子）。
+Centered on the model's jacobian contract, this module provides: Jacobian at a state, eigendecomposition,
+stability classification, and the dominant eigen-direction (used for drawing line attractors / slow-manifold
+directions; see RNN_DynamicalSystemAnalysis.ipynb, where the Jacobian is decomposed and the largest-eigenvalue
+direction is used to draw line attractors).
 """
 from __future__ import annotations
 
@@ -19,13 +20,13 @@ class LinearizationResult:
     jacobian: np.ndarray
     eigenvalues: np.ndarray
     eigenvectors: np.ndarray
-    is_stable: bool                      # 离散系统 max|eig| < 1
-    n_unstable: int                      # |eig| ≥ 1 的个数（不稳定方向数）
+    is_stable: bool                      # Discrete system: max|eig| < 1
+    n_unstable: int                      # Number of |eig| ≥ 1 (number of unstable directions)
 
 
 def linearize(model: NeuralDynamicsModel, z, *, task_input: torch.Tensor | None = None
               ) -> LinearizationResult:
-    """在状态 z 处线性化。z: (M,) tensor/ndarray or (1, M) (auto-squeezed)."""
+    """Linearize at state z. z: (M,) tensor/ndarray or (1, M) (auto-squeezed)."""
     device = next(model.parameters()).device
     z = torch.as_tensor(np.asarray(z), dtype=torch.float32, device=device)
     # Ensure z is 1-D (M,) — handle (1, M) from e.g. fp.z.unsqueeze(0)
@@ -41,13 +42,13 @@ def linearize(model: NeuralDynamicsModel, z, *, task_input: torch.Tensor | None 
 
 
 def dominant_direction(lin: LinearizationResult) -> np.ndarray:
-    """最大特征值对应的实部方向（画线吸引子/慢流形用）。"""
+    """Real direction corresponding to the eigenvalue with largest magnitude (used for drawing line attractors / slow manifolds)."""
     i = int(np.argmax(np.abs(lin.eigenvalues)))
     return np.real(lin.eigenvectors[:, i])
 
 
 def classify_fixed_point(lin: LinearizationResult) -> str:
-    """粗分类：stable / saddle(k) / unstable（离散系统按 |eig| 与 1 比较）。"""
+    """Coarse classification: stable / saddle(k) / unstable (for discrete systems, compare |eig| with 1)."""
     if lin.is_stable:
         return "stable"
     if lin.n_unstable == lin.eigenvalues.shape[0]:

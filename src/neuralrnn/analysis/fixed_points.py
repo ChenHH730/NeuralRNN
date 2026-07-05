@@ -1,18 +1,20 @@
-"""不动点 / k-环分析（双后端）。
+"""Fixed point / k-cycle analysis (dual backend).
 
-铁律（PORTING_GUIDE 契约D）：分析层只通过模型公共契约工作
-（recurrence / jacobian / supports_analytic_fixed_points / analytic_parameters），
-**绝不** import 任何具体模型类。这样任意满足契约的模型都能被同一套分析器分析。
+Golden rule (PORTING_GUIDE contract D): the analysis layer only works through the model's public contract
+(recurrence / jacobian / supports_analytic_fixed_points / analytic_parameters),
+and **never** imports any concrete model classes. Thus any model satisfying the contract can be analyzed by the same analyzer.
 
-两个后端：
-  1) 数值后端 NumericFixedPointFinder —— 移植自 RNN_DynamicalSystemAnalysis.ipynb：
-     并行初始化一批候选状态，用 Adam 最小化 ‖F(z) − z‖²（速度场范数），筛速度阈值并去重。
-     适用于任意模型（含连续 CTRNN 的离散步）。
-  2) 解析后端 AnalyticPLRNNFixedPointFinder —— 移植自 CNS2023_tutorial.ipynb 的
-     scy_fi / main：利用 PLRNN 的分段线性结构精确求解不动点与 k-环及其特征值。
-     仅当 model.supports_analytic_fixed_points 且实现 analytic_parameters() 时可用。
+Two backends:
+  1) Numeric backend NumericFixedPointFinder — ported from RNN_DynamicalSystemAnalysis.ipynb:
+     initializes a batch of candidate states in parallel, minimizes ‖F(z) − z‖² (velocity-field norm) with Adam,
+     filters by a speed threshold, and removes duplicates.
+     Applicable to any model (including the discrete step of continuous CTRNNs).
+  2) Analytic backend AnalyticPLRNNFixedPointFinder — ported from CNS2023_tutorial.ipynb's
+     scy_fi / main: exploits the piecewise-linear structure of PLRNNs to solve fixed points and k-cycles exactly,
+     together with their eigenvalues.
+     Only available when model.supports_analytic_fixed_points and analytic_parameters() are implemented.
 
-统一入口 find_fixed_points(model, ...) 自动按能力择优（解析优先，回退数值）。
+The unified entry point find_fixed_points(model, ...) automatically picks the best available backend (analytic preferred, numeric fallback).
 """
 from __future__ import annotations
 
@@ -26,12 +28,12 @@ from ..modeling_utils import NeuralDynamicsModel
 
 @dataclass
 class FixedPoint:
-    z: np.ndarray                       # 不动点坐标 (M,)
-    speed: float                        # ‖F(z) − z‖（数值后端）；解析后端为 0
-    eigenvalues: np.ndarray | None = None  # Jacobian 特征值
-    is_stable: bool | None = None       # 离散系统：max|eig| < 1
-    order: int = 1                      # 1=不动点；k>1=k 环（解析后端）
-    cycle: np.ndarray | None = None     # k 环的全部点 (order, M)
+    z: np.ndarray                       # Fixed-point coordinate (M,)
+    speed: float                        # ‖F(z) − z‖ (numeric backend); 0 for analytic backend
+    eigenvalues: np.ndarray | None = None  # Jacobian eigenvalues
+    is_stable: bool | None = None       # Discrete system: max|eig| < 1
+    order: int = 1                      # 1 = fixed point; k>1 = k-cycle (analytic backend)
+    cycle: np.ndarray | None = None     # All points of the k-cycle (order, M)
 
 
 @dataclass
@@ -46,10 +48,10 @@ class FixedPointSet:
 
 
 # =========================================================================
-# 数值后端（梯度法，模型无关）
+# Numeric backend (gradient-based, model-agnostic)
 # =========================================================================
 class NumericFixedPointFinder:
-    """通过最小化速度场范数 ‖F(z) − z‖² 搜索不动点（nn-brain 风格）。"""
+    """Search for fixed points by minimizing the velocity-field norm ‖F(z) − z‖² (nn-brain style)."""
 
     def __init__(self, n_candidates: int = 64, n_iters: int = 10000, lr: float = 1e-3,
                  speed_tol: float = 1e-1, dedup_tol: float = 1e-2,
@@ -69,7 +71,7 @@ class NumericFixedPointFinder:
 
     def find(self, model: NeuralDynamicsModel, *, task_input: torch.Tensor | None = None,
              init_states: torch.Tensor | None = None) -> FixedPointSet:
-        """task_input:(input_dim,) 搜索时固定的输入条件（如决策任务 0-coherence 均值输入）。"""
+        """task_input: (input_dim,) constant input condition during search (e.g., mean input at 0-coherence in a decision task)."""
         was_training = model.training
         model.eval()
         for p in model.parameters():
@@ -98,7 +100,7 @@ class NumericFixedPointFinder:
             loss.backward()
             opt.step()
 
-        # 速度筛选（按速度排序，优先保留最佳候选）
+        # Speed filtering (sort by speed and keep the best candidates first)
         speeds = self._speed(model, z.detach(), xin)
         order = speeds.argsort()
         z_sorted = z.detach()[order]
@@ -113,7 +115,7 @@ class NumericFixedPointFinder:
             cand = z.detach()[best_idx:best_idx+1].cpu().numpy()
             cand_speed = speeds[best_idx:best_idx+1].cpu().numpy()
 
-        # 去重 + 求特征值/稳定性（用模型 jacobian 契约）
+        # Deduplicate and compute eigenvalues/stability (using the model's jacobian contract)
         fps = FixedPointSet()
         for c, sp in zip(cand, cand_speed):
             if any(np.linalg.norm(c - p.z) < self.dedup_tol for p in fps.points):
@@ -131,7 +133,7 @@ class NumericFixedPointFinder:
 
 
 # =========================================================================
-# 解析后端（PLRNN：scy_fi / main，精确求 FP + k 环）
+# Analytic backend (PLRNN: scy_fi / main, exact FP + k-cycle solver)
 # =========================================================================
 def _construct_relu_matrix(number_quadrant: int, dim: int) -> np.ndarray:
     bits = format(number_quadrant, f"0{dim}b")[::-1]
@@ -181,7 +183,7 @@ def _latent_series(steps, A, W1, W2, h1, h2, dz, z0):
 
 
 def _get_eigvals(A, W1, W2, D_list, order):
-    # A 可能为 (M,) 对角向量（shallowPLRNN/dendPLRNN）或 (M,M) 全矩阵（ALRNN 有效形式）。
+    # A may be an (M,) diagonal vector (shallowPLRNN/dendPLRNN) or a full (M,M) matrix (effective ALRNN form).
     A_mat = np.diag(A) if A.ndim == 1 else A
     e = np.eye(A.shape[0])
     for i in range(order):
@@ -190,7 +192,7 @@ def _get_eigvals(A, W1, W2, D_list, order):
 
 
 def _scy_fi(A, W1, W2, h1, h2, order, found_lower, outer_it=300, inner_it=100):
-    """启发式精确求解 order 阶环（移植自 CNS2023 scy_fi）。A 为 (M,M) 对角阵。"""
+    """Heuristic exact solver for order-k cycles (ported from CNS2023 scy_fi). A is an (M,M) diagonal matrix."""
     hidden_dim = h2.shape[0]
     latent_dim = h1.shape[0]
     cycles, eigvals = [], []
@@ -230,7 +232,7 @@ def _scy_fi(A, W1, W2, h1, h2, order, found_lower, outer_it=300, inner_it=100):
 
 
 class AnalyticPLRNNFixedPointFinder:
-    """PLRNN 解析后端：精确枚举 1..max_order 阶环及特征值（CNS2023 main）。"""
+    """PLRNN analytic backend: enumerate cycles of order 1..max_order exactly, with eigenvalues (CNS2023 main)."""
 
     def __init__(self, max_order: int = 1, outer_it: int = 300, inner_it: int = 100):
         self.max_order = max_order
@@ -240,14 +242,14 @@ class AnalyticPLRNNFixedPointFinder:
     def find(self, model: NeuralDynamicsModel, *,
              task_input: torch.Tensor | None = None) -> FixedPointSet:
         if not model.supports_analytic_fixed_points:
-            raise RuntimeError(f"{type(model).__name__} 不支持解析不动点；请用数值后端。")
-        p = model.analytic_parameters(task_input=task_input)  # 允许折叠常值输入到偏置
+            raise RuntimeError(f"{type(model).__name__} does not support analytic fixed points; use a numeric backend.")
+        p = model.analytic_parameters(task_input=task_input)  # Allow folding a constant input into the bias
         required = {"A", "W1", "W2", "h1", "h2"}
         if not required.issubset(p):
             raise RuntimeError(
-                f"analytic_parameters() 必须返回 {required}，实际返回 {set(p.keys())}"
+                f"analytic_parameters() must return {required}, but got {set(p.keys())}"
             )
-        A = p["A"].cpu().numpy()               # (M,M)，对角或全矩阵
+        A = p["A"].cpu().numpy()               # (M,M), diagonal or full matrix
         W1 = p["W1"].cpu().numpy()
         W2 = p["W2"].cpu().numpy()
         h1 = p["h1"].cpu().numpy()
@@ -269,23 +271,24 @@ class AnalyticPLRNNFixedPointFinder:
 
 
 # =========================================================================
-# scipy 后端（移植自 trainRNNbrain DynamicSystemAnalyzer）
+# scipy backend (ported from trainRNNbrain DynamicSystemAnalyzer)
 # =========================================================================
 class ScipyFixedPointFinder:
-    """scipy 后端：fsolve 精确求根 + Powell 近似最小化（移植自 trainRNNbrain）。
+    """scipy backend: exact root-finding with fsolve + approximate minimization with Powell (ported from trainRNNbrain).
 
-    ⚠️ WARNING: 此后端在 CTRNN（Euler 离散步进）上不太稳定，不推荐使用。
-    fsolve 的精确模式（mode='exact'）经常收敛到非不动点，因为 Euler 离散化引入的
-    数值误差使得 RHS(z)=0 的精确解可能不存在。approx 模式（Powell）更鲁棒但仍
-    不如 NumericFixedPointFinder（PyTorch Adam 梯度下降）可靠。
+    ⚠️ WARNING: This backend is less stable on CTRNNs (Euler discrete steps) and is not recommended.
+    fsolve's exact mode (mode='exact') often converges to points that are not fixed points, because the
+    numerical error introduced by Euler discretization can make an exact RHS(z)=0 solution nonexistent.
+    The approx mode (Powell) is more robust but still less reliable than NumericFixedPointFinder
+    (PyTorch Adam gradient descent).
 
-    推荐：优先使用 NumericFixedPointFinder（backend='numeric'），
-    仅在 numeric 后端找不到不动点时才尝试此后端的 mode='approx'。
+    Recommendation: prefer NumericFixedPointFinder (backend='numeric'),
+    and only try mode='approx' of this backend when the numeric backend fails to find fixed points.
 
-    与 NumericFixedPointFinder 的区别：
-    - fsolve 用 Levenberg-Marquardt 算法直接求 RHS(z)=0
-    - Powell 最小化 ‖RHS‖² 作为 fallback（mode='approx'）
-    - 可利用模型的 jacobian 作为 fsolve 的解析 Jacobian
+    Differences from NumericFixedPointFinder:
+    - fsolve uses the Levenberg-Marquardt algorithm to solve RHS(z)=0 directly
+    - Powell minimizes ‖RHS‖² as a fallback (mode='approx')
+    - The model's jacobian can be supplied to fsolve as an analytic Jacobian
     """
 
     def __init__(self, n_candidates: int = 100, mode: str = "exact",
@@ -295,15 +298,15 @@ class ScipyFixedPointFinder:
                  seed: int = 42):
         """
         Args:
-            n_candidates: 候选初始点数量
-            mode: "exact"（fsolve）或 "approx"（Powell 最小化）
-            fun_tol: 函数值容差（低于此视为不动点）
-            patience: 连续无改善迭代次数上限
-            stop_length: 搜索停止的迭代上限
-            sigma_init_guess: 初始猜测的高斯噪声标准差
-            eig_cutoff: 特征值判为零的阈值
-            diff_cutoff: 两点判为重复的 L2 距离阈值
-            seed: 随机种子
+            n_candidates: number of candidate initial points
+            mode: "exact" (fsolve) or "approx" (Powell minimization)
+            fun_tol: function-value tolerance (points below this are treated as fixed points)
+            patience: maximum number of iterations without improvement
+            stop_length: hard upper iteration limit for stopping the search
+            sigma_init_guess: standard deviation of Gaussian noise for initial guesses
+            eig_cutoff: threshold for treating an eigenvalue as zero
+            diff_cutoff: L2 distance threshold for treating two points as duplicates
+            seed: random seed
         """
         self.n_candidates = n_candidates
         self.mode = mode
@@ -316,7 +319,7 @@ class ScipyFixedPointFinder:
         self.seed = seed
 
     def _rhs_numpy(self, model, z_np, task_input_np):
-        """计算 RHS(z) = F(z) - z，返回 numpy。"""
+        """Compute RHS(z) = F(z) - z, returning a numpy array."""
         device = next(model.parameters()).device
         z_t = torch.as_tensor(z_np, dtype=torch.float32, device=device).unsqueeze(0)
         xin = None
@@ -327,7 +330,7 @@ class ScipyFixedPointFinder:
         return (f - z_t.squeeze(0)).cpu().numpy()
 
     def _jacobian_numpy(self, model, z_np, task_input_np):
-        """计算 Jacobian ∂RHS/∂z，返回 numpy。"""
+        """Compute the Jacobian ∂RHS/∂z, returning a numpy array."""
         device = next(model.parameters()).device
         z_t = torch.as_tensor(z_np, dtype=torch.float32, device=device)
         xin = None
@@ -338,7 +341,7 @@ class ScipyFixedPointFinder:
 
     def find(self, model: NeuralDynamicsModel, *, task_input: torch.Tensor | None = None,
              init_states: torch.Tensor | None = None) -> FixedPointSet:
-        """搜索不动点。task_input: (input_dim,) 固定输入条件。"""
+        """Search for fixed points. task_input: (input_dim,) constant input condition."""
         from scipy.optimize import fsolve, minimize
 
         was_training = model.training
@@ -348,10 +351,10 @@ class ScipyFixedPointFinder:
         device = next(model.parameters()).device
         rng = np.random.RandomState(self.seed)
 
-        # 准备 numpy 格式的 task_input
+        # Prepare task_input in numpy format
         ti_np = task_input.cpu().numpy() if task_input is not None else None
 
-        # 生成初始猜测
+        # Generate initial guesses
         if init_states is not None:
             candidates = init_states.cpu().numpy()
         else:
@@ -391,7 +394,7 @@ class ScipyFixedPointFinder:
                 if speed > np.sqrt(self.fun_tol):
                     continue
 
-            # 去重
+            # Remove duplicates
             is_dup = False
             for fp in found_points:
                 if np.linalg.norm(z_sol - fp) < self.diff_cutoff:
@@ -400,7 +403,7 @@ class ScipyFixedPointFinder:
             if is_dup:
                 continue
 
-            # 计算 Jacobian 特征值和稳定性
+            # Compute Jacobian eigenvalues and stability
             try:
                 J = self._jacobian_numpy(model, z_sol, ti_np) + np.eye(M)
                 eig = np.linalg.eigvals(J)
@@ -411,7 +414,7 @@ class ScipyFixedPointFinder:
             found_speeds.append(speed)
             found_eigs.append(eig)
 
-        # 构建 FixedPointSet
+        # Build FixedPointSet
         fps = FixedPointSet()
         for z, sp, eig in zip(found_points, found_speeds, found_eigs):
             is_stable = None
@@ -426,24 +429,25 @@ class ScipyFixedPointFinder:
 
 
 # =========================================================================
-# 统一入口
+# Unified entry point
 # =========================================================================
 def find_fixed_points(model: NeuralDynamicsModel, *, backend: str = "auto",
                       task_input: torch.Tensor | None = None,
                       max_order: int = 1, **kwargs) -> FixedPointSet:
-    """自动择优：解析优先（若模型支持），否则数值。
+    """Automatic backend selection: analytic preferred (if the model supports it), otherwise numeric.
 
-    backend: "auto" / "numeric" / "analytic" / "scipy"。
-    task_input: 常值外部输入条件。对解析后端，会折叠到有效偏置（如 h1 + C*s）后求解；
-                对 numeric/scipy 后端，作为固定的输入条件搜索不动点。
-    max_order: 解析后端搜索的最高环阶。
+    backend: "auto" / "numeric" / "analytic" / "scipy".
+    task_input: constant external input condition. For the analytic backend it is folded into the effective bias
+                (e.g., h1 + C*s) before solving; for the numeric/scipy backends it is held fixed while searching
+                for fixed points.
+    max_order: maximum cycle order scanned by the analytic backend.
 
-    后端对比：
-    - numeric:  PyTorch Adam 梯度下降 ‖F(z)−z‖²（通用，GPU 友好，推荐）
-    - analytic: PLRNN 精确求解（仅限 PLRNN 模型；支持常值 task_input）
-    - scipy:    scipy fsolve / Powell（⚠️ 不太稳定，不推荐使用；
-                Euler 离散步进下 fsolve 经常收敛到非不动点；
-                仅在 numeric 后端找不到结果时可尝试 mode='approx'）
+    Backend comparison:
+    - numeric:  PyTorch Adam gradient descent on ‖F(z)−z‖² (general, GPU-friendly, recommended)
+    - analytic: exact PLRNN solver (PLRNN models only; supports constant task_input)
+    - scipy:    scipy fsolve / Powell (⚠️ less stable, not recommended;
+                fsolve often converges to non-fixed-points under Euler discretization;
+                only try mode='approx' when the numeric backend returns no results)
     """
     if backend == "analytic" or (backend == "auto" and model.supports_analytic_fixed_points):
         return AnalyticPLRNNFixedPointFinder(max_order=max_order, **kwargs).find(

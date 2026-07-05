@@ -1,12 +1,13 @@
-"""流形 / 轨迹几何分析包装（MARBLE、neuralflow）—— 占位骨架。
+"""Manifold / trajectory-geometry wrappers (MARBLE, neuralflow) — placeholder skeleton.
 
-设计决定（ARCHITECTURE §3.3 / §5）：MARBLE 与 neuralflow **不是** RNN 模型，
-而是作用在"轨迹/向量场数据"上的分析方法，因此归入 analysis/ 而非 model zoo。
-它们是可选重依赖（pip install 'neuralrnn[manifold]'）。
+Design decision (ARCHITECTURE §3.3 / §5): MARBLE and neuralflow are **not** RNN models;
+they are analysis methods operating on "trajectory / vector-field data", so they belong in analysis/
+rather than the model zoo. They are optional heavy dependencies (pip install 'neuralrnn[manifold]').
 
-统一约定：上游用 model.generate / collect_states 得到轨迹与速度（位置+速度对），
-本模块把它们喂给 MARBLE/neuralflow 的 API，产出嵌入/距离/比较结果。
-具体接线见 PORTING_GUIDE 配方6（MARBLE）与配方8（neuralflow）。
+Unified convention: the upstream code obtains trajectories and velocities (position + velocity pairs)
+using model.generate / collect_states; this module feeds them into the MARBLE / neuralflow APIs to
+produce embeddings / distances / comparison results. See PORTING_GUIDE recipe 6 (MARBLE) and recipe 8
+(neuralflow) for wiring details.
 """
 from __future__ import annotations
 
@@ -14,8 +15,8 @@ import numpy as np
 
 
 def trajectories_to_pos_vel(traj: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """把轨迹 (B,T,M) 或 (T,M) 转成 MARBLE 需要的 (position, velocity) 对。
-    velocity[t] = x[t+1] − x[t]，位置取前 T−1 步。"""
+    """Convert a trajectory (B,T,M) or (T,M) into the (position, velocity) pair required by MARBLE.
+    velocity[t] = x[t+1] − x[t], and positions are the first T−1 steps."""
     arr = np.asarray(traj)
     if arr.ndim == 3:
         arr = arr.reshape(-1, arr.shape[-1])
@@ -25,22 +26,22 @@ def trajectories_to_pos_vel(traj: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def marble_embedding(pos: np.ndarray, vel: np.ndarray, **marble_kwargs):
-    """用 MARBLE 对 (pos, vel) 学习无监督流形嵌入。
+    """Learn an unsupervised manifold embedding from (pos, vel) with MARBLE.
 
-    移植（配方6）时实现：
+    Implement when porting (recipe 6):
         from MARBLE import construct_dataset, net
         data = construct_dataset(pos, features=vel)
         model = net(data, **marble_kwargs); model.fit()
         return model.transform(data)
     """
     raise NotImplementedError(
-        "MARBLE 流形嵌入：请按 PORTING_GUIDE 配方6 接入 MARBLE，并 "
-        "pip install 'neuralrnn[manifold]'。"
+        "MARBLE manifold embedding: follow PORTING_GUIDE recipe 6 to integrate MARBLE, and "
+        "pip install 'neuralrnn[manifold]'."
     )
 
 
 def neuralflow_analysis(spike_data, **kwargs):
-    """neuralflow（连续时间潜流场）分析入口。移植见配方8。"""
+    """neuralflow (continuous-time latent flow field) analysis entry point. See recipe 8 for porting."""
     raise NotImplementedError(
-        "neuralflow 分析：请按 PORTING_GUIDE 配方8 接入 neuralflow。"
+        "neuralflow analysis: follow PORTING_GUIDE recipe 8 to integrate neuralflow."
     )

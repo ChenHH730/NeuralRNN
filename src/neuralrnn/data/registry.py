@@ -1,9 +1,9 @@
-"""开源数据集注册表 + 统一加载入口 load_dataset()。
+"""Open-dataset registry + unified loading entry point load_dataset().
 
-每纳入一篇论文，往 DATASET_REGISTRY 加一条 DatasetSpec（URL 直接抄该论文
-notebook 里的 wget / Dataverse 链接），并指定一个 loader（"模块:函数"）。
+For each paper included, add a DatasetSpec to DATASET_REGISTRY (copy the URL directly from that paper's
+notebook wget / Dataverse link) and specify a loader ("module:function").
 
-设计见 ARCHITECTURE §3.2。下载与缓存逻辑在 data/download.py（按需实现）。
+Design see ARCHITECTURE §3.2. Download and cache logic is in data/download.py (implemented on demand).
 """
 from __future__ import annotations
 
@@ -15,19 +15,19 @@ from typing import Any
 @dataclass
 class DatasetSpec:
     kind: str                                   # neurogym / timeseries / behavioral / trained_rnn / trajectory
-    loader: str | None = None                   # "module:function"，产出数据集对象
-    url: str | None = None                      # 下载地址（裸 URL / Dataverse / Zenodo / OSF）
-    files: dict[str, str] | None = None         # 逻辑名 -> 文件名
-    filename: str | None = None                 # 单文件下载名
+    loader: str | None = None                   # "module:function", returns a dataset object
+    url: str | None = None                      # download URL (bare URL / Dataverse / Zenodo / OSF)
+    files: dict[str, str] | None = None         # logical_name -> filename
+    filename: str | None = None                 # single-file download name
     unpack: str | None = None                   # None / "zip" / "tar"
-    sha256: str | None = None                   # 校验
-    task: str | None = None                     # neurogym 任务名
+    sha256: str | None = None                   # checksum
+    task: str | None = None                     # neurogym task name
     extra: dict[str, Any] = field(default_factory=dict)
 
 
-# ------- 条目示例（URL 来自各 notebook）-------
+# ------- Example entries (URLs come from each notebook) -------
 DATASET_REGISTRY: dict[str, DatasetSpec] = {
-    # CNS2023：Lorenz63 重构基准（含 train/test/预训练模型）
+    # CNS2023: Lorenz63 reconstruction benchmark (includes train/test/pretrained model)
     "lorenz63": DatasetSpec(
         kind="timeseries",
         url="https://github.com/DurstewitzLab/CNS-2023/raw/main/lorenz-datasets.zip",
@@ -36,24 +36,24 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
         loader="neuralrnn.data.timeseries_dataset:TimeSeriesDataset.from_npy",
         extra={"dt": 0.01},
     ),
-    # nn-brain：neurogym 任务（无需下载）
+    # nn-brain: neurogym task (no download needed)
     "perceptual_decision_making": DatasetSpec(
         kind="neurogym", task="PerceptualDecisionMaking-v0",
         loader="neuralrnn.data.neurogym_dataset:NeurogymDataset.from_task",
     ),
-    # nn-brain：ParametricWorkingMemory 任务（DelayComparison，无需下载）
+    # nn-brain: ParametricWorkingMemory task (DelayComparison, no download needed)
     "delay_comparison": DatasetSpec(
         kind="neurogym", task="DelayComparison-v0",
         loader="neuralrnn.data.neurogym_dataset:NeurogymDataset.from_task",
     ),
-    # 低秩 RNN（Harvard Dataverse；移植配方 3 时启用 loader）
+    # Low-rank RNN (Harvard Dataverse; enable loader when porting recipe 3)
     "dms_lowrank_rank2": DatasetSpec(
         kind="trained_rnn",
         url="https://dataverse.harvard.edu/api/access/datafile/6963161",
         filename="dms_rank2_500.pt",
         # loader="neuralrnn.models.lowrank.modeling_lowrank:load_network",
     ),
-    # Langdon & Engel (2025)：认知任务（程序化生成，无需下载）
+    # Langdon & Engel (2025): cognitive tasks (procedurally generated, no download needed)
     "siegel_miller": DatasetSpec(
         kind="cognitive_task",
         loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
@@ -110,18 +110,18 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
         loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
         extra={"task_name": "lr_mante"},
     ),
-    # Tiny RNN：Bartolo Monkey 概率反转学习任务行为数据
+    # Tiny RNN: Bartolo Monkey probabilistic reversal-learning task behavioral data
     "bartolo_monkey": DatasetSpec(
         kind="behavioral",
         loader="neuralrnn.data.bartolo_monkey_dataset:BartoloMonkeyDataset.load",
         extra={"animal_name": "V"},
     ),
-    # 移植新论文时在此追加……
+    # Append new paper entries here ...
 }
 
 
 def _resolve(spec_loader: str):
-    """解析 "module:attr" 或 "module:Class.method" 为可调用对象。"""
+    """Resolve 'module:attr' or 'module:Class.method' to a callable."""
     module_path, attr = spec_loader.split(":")
     obj = importlib.import_module(module_path)
     for part in attr.split("."):
@@ -130,12 +130,12 @@ def _resolve(spec_loader: str):
 
 
 def load_dataset(name: str, **overrides):
-    """统一入口：查 registry → （按需下载/缓存）→ 实例化数据集。
+    """Unified entry point: lookup registry -> (download/cache on demand) -> instantiate dataset.
 
-    overrides 透传给 loader（如 sequence_length / batch_size / dt / seq_len）。
+    overrides are forwarded to loader (e.g., sequence_length / batch_size / dt / seq_len).
     """
     if name not in DATASET_REGISTRY:
-        raise KeyError(f"未注册数据集 '{name}'。已有: {sorted(DATASET_REGISTRY)}")
+        raise KeyError(f"Dataset '{name}' is not registered. Available: {sorted(DATASET_REGISTRY)}")
     spec = DATASET_REGISTRY[name]
 
     if spec.kind == "neurogym":
@@ -152,12 +152,12 @@ def load_dataset(name: str, **overrides):
         extra = {**spec.extra, **overrides}
         return loader(**extra)
 
-    # 需要下载的本地文件型数据集
-    from .download import ensure_files  # 按需实现：返回 {逻辑名: 本地路径}
-    local = ensure_files(spec)          # 处理下载/解压/校验/缓存
+    # Local file datasets that require download
+    from .download import ensure_files  # Implemented on demand: returns {logical_name: local path}
+    local = ensure_files(spec)          # Handles download / unpack / verification / cache
     loader = _resolve(spec.loader)
     if spec.files:
-        # 约定：files 的逻辑名（train/test...）作为 *_path 关键字传入
+        # Convention: logical names in files (train/test...) are passed as *_path keywords
         path_kwargs = {f"{k}_path": v for k, v in local.items()}
         extra = {**(spec.extra or {}), **overrides}
         return loader(**path_kwargs, **extra)

@@ -1,10 +1,10 @@
-"""线吸引子（Line Attractor）分析。
+"""Line-attractor analysis.
 
-移植自 trainRNNbrain 的 DynamicSystemAnalyzerCDDM，用于分析 CDDM 等任务中
-持续活动（persistent activity）的神经机制。线吸引子是一段连续的慢流形，
-网络状态沿此流形漂移极慢（‖RHS‖ ≈ 0），支持连续变量的稳定维持。
+Ported from trainRNNbrain's DynamicSystemAnalyzerCDDM, used to analyze the neural mechanism of persistent
+activity in tasks such as CDDM. A line attractor is a continuous slow manifold along which the network state
+drifts very slowly (‖RHS‖ ≈ 0), supporting stable maintenance of continuous variables.
 
-铁律：只通过模型公共契约（recurrence / jacobian）工作。
+Golden rule: works only through the model's public contract (recurrence / jacobian).
 """
 from __future__ import annotations
 
@@ -19,21 +19,21 @@ from .dimensionality import fit_pca, PCAResult
 
 @dataclass
 class LineAttractorPoint:
-    """线吸引子上的一个采样点。"""
-    z: np.ndarray                       # 状态空间坐标 (M,)
+    """One sampled point on the line attractor."""
+    z: np.ndarray                       # State-space coordinate (M,)
     speed: float                        # ‖F(z) - z‖
-    distance: float                     # 沿线吸引子的累积距离
-    eigenvalues: np.ndarray | None = None   # Jacobian 特征值
-    jacobian: np.ndarray | None = None      # Jacobian 矩阵
+    distance: float                     # Cumulative distance along the line attractor
+    eigenvalues: np.ndarray | None = None   # Jacobian eigenvalues
+    jacobian: np.ndarray | None = None      # Jacobian matrix
 
 
 @dataclass
 class LineAttractorResult:
-    """线吸引子分析结果。"""
+    """Result of line-attractor analysis."""
     points: list[LineAttractorPoint] = field(default_factory=list)
     endpoints: tuple[np.ndarray, np.ndarray] | None = None   # (left, right)
     projection_axes: np.ndarray | None = None                 # (3, M) for 3D viz
-    trajectories: np.ndarray | None = None                    # (B, T, M) 用于 PCA
+    trajectories: np.ndarray | None = None                    # (B, T, M) used for PCA
 
     @property
     def distances(self) -> np.ndarray:
@@ -60,21 +60,22 @@ def find_line_attractor_endpoints(
     initial_state: torch.Tensor | None = None,
     nudge_scale: float = 0.1,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """找到线吸引子的两个端点。
+    """Find the two endpoints of a line attractor.
 
-    方法：用两个相反方向的微扰输入运行模型，取最终状态作为端点近似。
-    移植自 trainRNNbrain DynamicSystemAnalyzerCDDM.get_LineAttractor_endpoints()。
+    Method: run the model with two opposite-direction perturbed inputs and take the final states as
+    endpoint approximations.
+    Ported from trainRNNbrain DynamicSystemAnalyzerCDDM.get_LineAttractor_endpoints().
 
     Args:
-        model: 训练好的模型
-        context_input: (input_dim,) 上下文输入条件
-        n_steps: 运行步数
-        relax_steps: 收敛后的松弛步数
-        initial_state: (M,) 初始状态；默认零向量
-        nudge_scale: 微扰幅度
+        model: trained model
+        context_input: (input_dim,) context input condition
+        n_steps: number of run steps
+        relax_steps: number of relaxation steps after convergence
+        initial_state: (M,) initial state; defaults to zero vector
+        nudge_scale: perturbation scale
 
     Returns:
-        (endpoint_left, endpoint_right): 两个端点的 numpy 坐标 (M,)
+        (endpoint_left, endpoint_right): numpy coordinates (M,) of the two endpoints
     """
     model.eval()
     device = next(model.parameters()).device
@@ -84,12 +85,12 @@ def find_line_attractor_endpoints(
     z0 = initial_state if initial_state is not None else torch.zeros(M, device=device)
     ctx = context_input.to(device)
 
-    # 生成微扰输入：正方向和负方向
+    # Generate perturbed inputs: negative and positive directions
     nudge = torch.randn(input_dim, device=device) * nudge_scale
     input_left = (ctx - nudge).unsqueeze(0).unsqueeze(0).expand(1, n_steps, -1)
     input_right = (ctx + nudge).unsqueeze(0).unsqueeze(0).expand(1, n_steps, -1)
 
-    # 运行模型
+    # Run the model
     z_left = z0.unsqueeze(0)
     z_right = z0.unsqueeze(0)
 
@@ -97,7 +98,7 @@ def find_line_attractor_endpoints(
         z_left = model.recurrence(input_left[:, t], z_left)
         z_right = model.recurrence(input_right[:, t], z_right)
 
-    # 松弛：用纯上下文输入再跑几步
+    # Relaxation: run a few more steps with pure context input
     ctx_input = ctx.unsqueeze(0).unsqueeze(0).expand(1, 1, -1)
     for _ in range(relax_steps):
         z_left = model.recurrence(ctx_input.squeeze(1), z_left)
@@ -116,20 +117,21 @@ def walk_line_attractor(
     n_points: int = 31,
     max_iter: int = 100,
 ) -> list[LineAttractorPoint]:
-    """沿线吸引子采样，最小化 ‖RHS‖²。
+    """Sample points along the line attractor by minimizing ‖RHS‖².
 
-    在左右端点之间线性插值，每个点用 scipy SLSQP 最小化 ‖F(z)-z‖²。
-    移植自 trainRNNbrain DynamicSystemAnalyzerCDDM.calc_LineAttractor_analytics()。
+    Linearly interpolate between the left and right endpoints and minimize ‖F(z)-z‖² with scipy SLSQP
+    at each point.
+    Ported from trainRNNbrain DynamicSystemAnalyzerCDDM.calc_LineAttractor_analytics().
 
     Args:
-        model: 训练好的模型
-        context_input: (input_dim,) 上下文输入条件
-        endpoint_left, endpoint_right: 端点坐标 (M,)
-        n_points: 采样点数
-        max_iter: 每个点的最大优化迭代次数
+        model: trained model
+        context_input: (input_dim,) context input condition
+        endpoint_left, endpoint_right: endpoint coordinates (M,)
+        n_points: number of sampling points
+        max_iter: maximum optimization iterations per point
 
     Returns:
-        LineAttractorPoint 列表
+        list of LineAttractorPoint
     """
     from scipy.optimize import minimize
 
@@ -153,7 +155,7 @@ def walk_line_attractor(
         J = model.jacobian(z_t, inputs=xin).cpu().numpy()
         return J - np.eye(M)
 
-    # 线性插值初始猜测
+    # Linearly interpolated initial guesses
     alphas = np.linspace(0, 1, n_points)
     points: list[LineAttractorPoint] = []
     cumulative_dist = 0.0
@@ -172,7 +174,7 @@ def walk_line_attractor(
             z_opt = z_init
             speed = np.sqrt(2 * rhs_norm_sq(z_init))
 
-        # 计算 Jacobian 和特征值
+        # Compute Jacobian and eigenvalues
         try:
             J = rhs_jacobian(z_opt) + np.eye(M)
             eig = np.linalg.eigvals(J)
@@ -180,7 +182,7 @@ def walk_line_attractor(
             J = None
             eig = None
 
-        # 累积距离
+        # Cumulative distance
         if i > 0:
             cumulative_dist += np.linalg.norm(z_opt - points[-1].z)
 
@@ -201,33 +203,34 @@ def compute_line_attractor(
     n_points: int = 31,
     initial_state: torch.Tensor | None = None,
 ) -> LineAttractorResult:
-    """线吸引子分析的统一入口。
+    """Unified entry point for line-attractor analysis.
 
-    流程：找端点 → 沿线采样 → 计算 analytics → 投影到可视化坐标系。
+    Pipeline: find endpoints → sample along the line → compute analytics → project to the visualization
+    coordinate system.
 
     Args:
-        model: 训练好的模型
-        context_input: (input_dim,) 上下文输入条件
-        projection_axes: (3, M) 3D 可视化子空间的轴；None 时用 PCA
-        n_steps: 端点搜索的运行步数
-        n_points: 沿线吸引子的采样点数
-        initial_state: (M,) 初始状态
+        model: trained model
+        context_input: (input_dim,) context input condition
+        projection_axes: (3, M) axes of the 3D visualization subspace; PCA is used if None
+        n_steps: number of run steps for endpoint search
+        n_points: number of sampling points along the line attractor
+        initial_state: (M,) initial state
 
     Returns:
         LineAttractorResult
     """
-    # 1. 找端点
+    # 1. Find endpoints
     ep_left, ep_right = find_line_attractor_endpoints(
         model, context_input=context_input, n_steps=n_steps,
         initial_state=initial_state)
 
-    # 2. 沿线采样
+    # 2. Sample along the line
     points = walk_line_attractor(
         model, context_input=context_input,
         endpoint_left=ep_left, endpoint_right=ep_right,
         n_points=n_points)
 
-    # 3. 构建结果
+    # 3. Build the result
     result = LineAttractorResult(
         points=points,
         endpoints=(ep_left, ep_right),

@@ -1,13 +1,14 @@
-"""CTRNN 系列模型实现（范式 A 参考实现）。
+"""CTRNN family model implementations (Paradigm A reference implementation).
 
-移植自 Song 2016 的 CTRNN：
+Ported from Song 2016's CTRNN:
     r(t+dt) = r(t) + (dt/tau)[-r(t) + f(W_r r + W_x x + b)]
             = (1-alpha) r + alpha * f(pre_activation)
 
-本文件演示"契约 A（模型适配器）"的标准写法，供其它模型移植抄写：
-  - 继承 NeuralDynamicsModel，设 config_class，@register_model 注册
-  - __init__ 只从 config 读参数
-  - 实现 recurrence / readout（硬契约）
+This file demonstrates the standard "Contract A (model adapter)" pattern for other
+models to copy:
+  - Inherit NeuralDynamicsModel, set config_class, register with @register_model
+  - __init__ reads parameters only from config
+  - Implement recurrence / readout (hard contract)
 """
 from __future__ import annotations
 
@@ -40,7 +41,7 @@ class CTRNNModel(NeuralDynamicsModel):
         else:
             self.register_buffer("h0", torch.zeros(M))
 
-        # Dale 约束（EI 变体）：用固定符号掩码 + 非负权重幅度，详见 EI_RNN.ipynb。
+        # Dale constraints (EI variant): fixed sign mask + non-negative weight magnitudes; see EI_RNN.ipynb.
         if config.dale:
             n_exc = int(round(M * config.ei_ratio))
             sign = torch.ones(M)
@@ -65,7 +66,7 @@ class CTRNNModel(NeuralDynamicsModel):
     def _recurrent_weight(self) -> torch.Tensor:
         W = self.h2h.weight
         if self.dale_mask is not None:
-            # 强制列符号符合 Dale 律：|W| @ sign-diag
+            # Enforce column signs consistent with Dale's law: |W| @ sign-diag
             W = W.abs() @ self.dale_mask
         return W
 
@@ -82,10 +83,10 @@ class CTRNNModel(NeuralDynamicsModel):
                 noise_std = self.config.sigma_rec
             pre = pre + noise_std * torch.randn_like(pre)
         if self.config.relu_after_blend:
-            # nn-brain 原始公式: f((1-α)z + α·pre)
+            # nn-brain original formula: f((1-α)z + α·pre)
             z = self.act((1 - self.alpha) * z_prev + self.alpha * pre)
         else:
-            # 标准 Euler 离散化: (1-α)z + α·f(pre)
+            # Standard Euler discretization: (1-α)z + α·f(pre)
             z = (1 - self.alpha) * z_prev + self.alpha * self.act(pre)
         return z
 

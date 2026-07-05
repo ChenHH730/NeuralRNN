@@ -1,5 +1,6 @@
-"""输入处理库（占位）。
+"""Input processing library (placeholder).
 
-放置把原始刺激/事件编码成模型输入张量的工具（如任务刺激编码、行为序列 one-hot、
-外部输入对齐重采样等）。各数据集 loader 可调用这里的编码器以复用逻辑。
+Place tools that encode raw stimuli / events into model input tensors here
+(e.g., task stimulus encoding, behavioral sequence one-hot, external input
+alignment and resampling). Dataset loaders can call encoders here to reuse logic.
 """

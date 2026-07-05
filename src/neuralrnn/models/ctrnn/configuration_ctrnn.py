@@ -1,7 +1,7 @@
-"""CTRNN 系列配置（连续时间 RNN，含 vanilla / EI 变体）。
+"""CTRNN family configurations (continuous-time RNN, including vanilla / EI variants).
 
-参考实现：移植自 nn-brain 的 RNN+DynamicalSystemAnalysis.ipynb / EI_RNN.ipynb。
-作为"范式 A（任务优化 RNN）"的契约 A 抄写模板。
+Reference implementation: ported from nn-brain's RNN+DynamicalSystemAnalysis.ipynb / EI_RNN.ipynb.
+Serves as the Contract-A copy template for "Paradigm A (task-optimized RNN)".
 """
 from __future__ import annotations
 
@@ -9,21 +9,21 @@ from ...configuration_utils import NeuralRNNConfig
 
 
 class CTRNNConfig(NeuralRNNConfig):
-    """连续时间 RNN：τ dr/dt = -r + f(W_r r + W_x x + b)，欧拉离散步长 dt。
+    """Continuous-time RNN: τ dr/dt = -r + f(W_r r + W_x x + b), Euler-discretized with step dt.
 
     Args:
-        input_dim:  输入维度
-        latent_dim: 隐单元数 M
-        output_dim: 读出维度（任务类别数等）
-        dt:         离散步长；alpha = dt/tau
-        tau:        时间常数
-        activation: 非线性（relu / tanh / softplus）
-        dale:       是否施加 Dale 约束（兴奋/抑制分离），EI 变体置 True
-        ei_ratio:   兴奋单元占比（dale=True 时生效）
-        trainable_h0: 初值是否可训练
-        sigma_rec:  递归噪声标准差（0 关闭）
-        relu_after_blend: True = f((1-α)z + α·pre)（nn-brain 原始公式）；
-                          False = (1-α)z + α·f(pre)（标准 Euler 离散化，默认）
+        input_dim:  Input dimension
+        latent_dim: Number of hidden units M
+        output_dim: Readout dimension (e.g. number of task classes)
+        dt:         Discretization step; alpha = dt/tau
+        tau:        Time constant
+        activation: Nonlinearity (relu / tanh / softplus)
+        dale:       Whether to enforce Dale constraints (excitatory/inhibitory separation); True for EI variant
+        ei_ratio:   Fraction of excitatory units (effective when dale=True)
+        trainable_h0: Whether the initial state is trainable
+        sigma_rec:  Standard deviation of recurrent noise (0 disables)
+        relu_after_blend: True = f((1-α)z + α·pre) (original nn-brain formula);
+                          False = (1-α)z + α·f(pre) (standard Euler discretization, default)
     """
 
     model_type = "ctrnn"
@@ -56,7 +56,7 @@ class CTRNNConfig(NeuralRNNConfig):
 
 
 class VanillaRNNConfig(CTRNNConfig):
-    """离散 vanilla RNN（dt=None 等价 alpha=1）。"""
+    """Discrete vanilla RNN (dt=None is equivalent to alpha=1)."""
     model_type = "vanilla_rnn"
 
     def __init__(self, **kwargs):

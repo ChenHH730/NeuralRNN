@@ -1,10 +1,10 @@
-"""时间序列数据集（范式 B / DSR）。
+"""Time-series dataset (Paradigm B / DSR).
 
-移植自 CNS2023_tutorial.ipynb 的 TimeSeriesDataset：把 (T×N) 观测切成长度
-sequence_length 的子序列批，targets 为 inputs 右移一位；可选外部输入 (T×K)。
+Ported from TimeSeriesDataset in CNS2023_tutorial.ipynb: slice (T×N) observations into subsequences
+of length sequence_length; targets are inputs shifted right by one step; optional external inputs (T×K).
 
-注意：原代码 sample_batch 返回 time-first，这里在边界统一转成 batch-first
-（ARCHITECTURE §2.2），并打包成标准 batch dict。
+Note: the original sample_batch returned time-first; here we convert to batch-first at the boundary
+(ARCHITECTURE §2.2) and pack into the standard batch dict.
 """
 from __future__ import annotations
 
@@ -34,8 +34,8 @@ class TimeSeriesDataset(BaseDataset):
         self.S = None if external_inputs is None else torch.as_tensor(
             np.asarray(external_inputs), dtype=torch.float32)
         if self.S is not None:
-            assert self.S.shape[0] == self.T, "external_inputs 与 data 时间步需一致"
-        # 测试集（评估/生成用）；不切批
+            assert self.S.shape[0] == self.T, "external_inputs must match the number of time steps in data"
+        # Test set (for evaluation/generation); not sliced into batches
         self.test = torch.as_tensor(np.asarray(test), dtype=torch.float32) if test is not None else None
 
     def __len__(self):
@@ -63,7 +63,7 @@ class TimeSeriesDataset(BaseDataset):
 
     @classmethod
     def from_npy(cls, train_path, test_path=None, dt=None, **kwargs) -> "TimeSeriesDataset":
-        """registry loader 入口：从 .npy 文件构造（对应 lorenz63 数据集）。"""
+        """Registry loader entry point: construct from .npy files (for the lorenz63 dataset)."""
         train = np.load(train_path).astype(np.float32)
         test = np.load(test_path).astype(np.float32) if test_path else None
         return cls(train, test=test, dt=dt, **kwargs)

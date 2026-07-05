@@ -1,11 +1,12 @@
-"""损失函数库 — 可复用的损失项与评估指标。
+"""Loss function library -- reusable loss terms and evaluation metrics.
 
-多数训练损失已封装进 train/objectives（与范式绑定）。此处放置纯损失函数和
-指标计算工具，供 notebooks 和训练循环直接使用，不需要依赖 Trainer 框架。
+Most training losses are already encapsulated in train/objectives (paradigm-bound).
+This module holds pure loss functions and metric utilities for direct use in notebooks
+and training loops without depending on the Trainer framework.
 
-已实现：
-- loss_mse: 带掩码的逐试次 MSE 损失（范式 A 回归任务）
-- accuracy_general: 基于符号的二选决策准确率（范式 A 决策任务）
+Implemented:
+- loss_mse: masked per-trial MSE loss (Paradigm A regression tasks)
+- accuracy_general: sign-based two-choice decision accuracy (Paradigm A decision tasks)
 """
 from .loss_functions import loss_mse, accuracy_general
 

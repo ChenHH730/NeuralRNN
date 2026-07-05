@@ -1,8 +1,9 @@
-"""向量场 / 速度场分析。
+"""Vector field / velocity field analysis.
 
-在状态空间的某 2D 平面（常取 PCA 前两主成分张成的平面）上采网格，计算每点的
-单步位移 F(z) − z，得到 quiver 所需的向量场，并标注速度场范数（接近 0 的低速区
-即不动点/慢流形的候选）。模型无关：只用 recurrence 契约。
+Sample a grid on a 2D plane in state space (usually the plane spanned by the first two PCA components),
+compute the single-step displacement F(z) − z at each grid point to obtain the vector field for a quiver
+plot, and record the velocity-field norm (low-speed regions near 0 are candidates for fixed points /
+slow manifolds). Model-agnostic: only uses the recurrence contract.
 """
 from __future__ import annotations
 
@@ -16,20 +17,21 @@ from ..modeling_utils import NeuralDynamicsModel
 
 @dataclass
 class VectorField:
-    grid_pc: np.ndarray        # 网格点（平面坐标）(G, 2)
-    velocity_pc: np.ndarray    # 投影回平面的速度向量 (G, 2)
-    speed: np.ndarray          # ‖F(z)−z‖ 全维范数 (G,)
+    grid_pc: np.ndarray        # Grid points (plane coordinates) (G, 2)
+    velocity_pc: np.ndarray    # Velocity vectors projected back to the plane (G, 2)
+    speed: np.ndarray          # Full-dimensional norm of F(z)−z (G,)
 
 
 @torch.no_grad()
 def compute_vector_field(model: NeuralDynamicsModel, basis: np.ndarray, mean: np.ndarray,
                          *, task_input: torch.Tensor | None = None,
                          extent=(-3.0, 3.0), n_grid: int = 20) -> VectorField:
-    """在由 basis(2×M) + mean(M,) 定义的平面上计算向量场。
+    """Compute the vector field on the plane defined by basis (2×M) + mean (M,).
 
-    basis：两行为平面的两个方向（如 PCA components_[:2]）；mean：平面原点（数据均值）。
-    把平面坐标 (a,b) 映射到全维 z = mean + a·basis[0] + b·basis[1]，算 F(z)−z，
-    再投影回平面（点乘 basis）得到可画的二维向量。
+    basis: two rows giving the two directions of the plane (e.g., PCA components_[:2]);
+    mean: origin of the plane (data mean).
+    Map plane coordinates (a,b) to the full-dimensional z = mean + a·basis[0] + b·basis[1],
+    compute F(z)−z, and project back onto the plane (dot with basis) to obtain a plottable 2D vector.
     """
     model.eval()
     device = next(model.parameters()).device
@@ -47,7 +49,7 @@ def compute_vector_field(model: NeuralDynamicsModel, basis: np.ndarray, mean: np
     xin = None if task_input is None else task_input.to(device).unsqueeze(0).expand(Z.shape[0], -1)
     F = model.recurrence(xin, Z)
     dz = F - Z                                                     # (G,M)
-    vel_pc = (dz @ B.T).cpu().numpy()                              # (G,2) 投影回平面
+    vel_pc = (dz @ B.T).cpu().numpy()                              # (G,2) project back to the plane
     speed = dz.norm(dim=-1).cpu().numpy()
 
     # Reshape to (n_grid, n_grid, ...) for convenient 2D indexing in plotting

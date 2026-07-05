@@ -1,20 +1,21 @@
-"""统一训练器（≈ transformers.Trainer）。
+"""Unified trainer (≈ transformers.Trainer).
 
-完全通用：只依赖 model.forward / objective.compute_loss / dataset.sample_batch，
-对"任务优化 vs 动力学重构 vs 行为拟合 vs 变分"等范式无感。范式差异由传入的
-Objective 决定（ARCHITECTURE §4）。
+Fully generic: only depends on model.forward / objective.compute_loss / dataset.sample_batch,
+and is agnostic to paradigms such as "task optimization vs. dynamics reconstruction vs. behavior
+fitting vs. variational". Paradigm differences are handled by the passed Objective (ARCHITECTURE §4).
 
-最小用法：
+Minimal usage:
     trainer = Trainer(model, dataset, objective, args)
     trainer.train()
     model.save_pretrained("ckpt/")          # config.json + model.safetensors
 
-设计要点：
-  - 以 step 为单位（一个 batch = 一 step），契合 DSR/任务两种范式；
-  - 支持梯度裁剪、可选 lr 调度、可选 GTF forcing 退火、定期日志/评估/存档；
-  - 不把任何范式逻辑写进来，保证"换 Objective 即换范式"；
-  - 支持隐藏状态 dropout（dropout_rate > 0 时通过 forward_with_dropout 实现，
-    task loss 在 clean 输出上计算，与 trainRNNbrain 策略一致）。
+Design notes:
+  - Step-based (one batch = one step), suitable for both DSR and task paradigms;
+  - Supports gradient clipping, optional lr scheduling, optional GTF forcing annealing,
+    periodic logging/evaluation/checkpointing;
+  - No paradigm logic is hard-coded, guaranteeing "change Objective, change paradigm";
+  - Supports hidden-state dropout (dropout_rate > 0 is implemented via forward_with_dropout,
+    task loss is computed on clean outputs, consistent with trainRNNbrain).
 """
 from __future__ import annotations
 
@@ -36,7 +37,7 @@ def _build_optimizer(params, args: TrainingArguments):
         return torch.optim.AdamW(params, lr=args.learning_rate, weight_decay=args.weight_decay)
     if name == "sgd":
         return torch.optim.SGD(params, lr=args.learning_rate, weight_decay=args.weight_decay)
-    raise ValueError(f"未知 optimizer: {args.optimizer}")
+    raise ValueError(f"Unknown optimizer: {args.optimizer}")
 
 
 def _build_scheduler(optimizer, args: TrainingArguments):
@@ -46,7 +47,7 @@ def _build_scheduler(optimizer, args: TrainingArguments):
         return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.max_steps)
     if args.lr_scheduler == "step":
         return torch.optim.lr_scheduler.StepLR(optimizer, step_size=max(args.max_steps // 3, 1))
-    raise ValueError(f"未知 lr_scheduler: {args.lr_scheduler}")
+    raise ValueError(f"Unknown lr_scheduler: {args.lr_scheduler}")
 
 
 class Trainer:
@@ -58,8 +59,8 @@ class Trainer:
         self.dataset = dataset
         self.objective = objective
         self.args = args or TrainingArguments()
-        self.eval_fn = eval_fn               # 可选：返回评估指标 dict（如 D_stsp/D_H）
-        self.post_step_hook = post_step_hook  # 可选：每步梯度更新后调用（如约束投影）
+        self.eval_fn = eval_fn               # optional: returns an evaluation metric dict (e.g. D_stsp/D_H)
+        self.post_step_hook = post_step_hook  # optional: called after each gradient update (e.g., constraint projection)
         self.history: list[dict] = []
 
         torch.manual_seed(self.args.seed)
@@ -105,7 +106,7 @@ class Trainer:
         std = flat.std(dim=0)
         return quant + std
 
-    # ---- 数据：统一走 sample_batch（DSR/任务都支持）并搬到 device ----
+    # ---- Data: always use sample_batch (supports both DSR and task datasets) and move to device ----
     def _next_batch(self) -> dict:
         batch = self.dataset.sample_batch()
         return {k: (v.to(self.device) if torch.is_tensor(v) else v) for k, v in batch.items()}
@@ -242,7 +243,7 @@ class Trainer:
 
         return self.history
 
-    # ---- 存读：直接复用模型的 save_pretrained（safetensors + json）----
+    # ---- Save/load: reuse the model's save_pretrained (safetensors + json) ----
     def save_checkpoint(self, step: int) -> str:
         path = os.path.join(self.args.output_dir, f"checkpoint-{step}")
         self.model.save_pretrained(path, metadata={"step": step,
@@ -252,6 +253,6 @@ class Trainer:
     @torch.no_grad()
     def evaluate(self) -> dict:
         if self.eval_fn is None:
-            raise RuntimeError("未提供 eval_fn")
+            raise RuntimeError("eval_fn not provided")
         self.model.eval()
         return self.eval_fn(self.model)
