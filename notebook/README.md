@@ -14,7 +14,8 @@ Every notebook is to implement a proposed method from previous works, with the s
 | [07_lowrank_RNN_paradigmA.ipynb](07_lowrank_RNN_paradigmA.ipynb) | Task | Dubreuil et al. (2022) | `lowrank_rnn` · `vector field` · `GMM clustering` |
 | [08_lowrank_RNN_paradigmB.ipynb](08_lowrank_RNN_paradigmB.ipynb) | Reconstruction | Valente et al. (2022) | `lowrank_rnn` · LINT |
 | [09_echo_state_network_paradigmA.ipynb](09_echo_state_network_paradigmA.ipynb) | Task / Reservoir | critical_init (Pachitariu et al., 2026) | `freeze_*` · critical recurrent init · readout-only training · `find_fixed_points` · `emax` comparison |
-| [02a_plrnn_variants_dend_alrnn.ipynb](02a_plrnn_variants_dend_alrnn.ipynb) | Reconstruction | Brenner et al. (2022; 2024) | `dend_plrnn` · `alrnn` · Lorenz-63 comparison · analytic fixed points |
+| [10_constrained_RNN_paradigmA.ipynb](10_constrained_RNN_paradigmA.ipynb) | Task | seRNN; critical_init sparse/modular | `constrained_rnn` · `se_rnn` · `sparse_rnn` · `modular_rnn` · spatial regularizer · structural masks · Mante · DelayComparison line attractor |
+| [10a_constrained_RNN_paradigmB.ipynb](10a_constrained_RNN_paradigmB.ipynb) | Reconstruction | Beiran & Litwin-Kumar (2025) | `connectome_rnn` · teacher-student · recordings break degeneracy · stiff/sloppy modes · optimal neuron selection |
 
 ## ongoing notebook (see PORTING_GUIDE)
 

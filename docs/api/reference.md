@@ -16,6 +16,8 @@
    - [CTRNN Family (Paradigm A)](#ctrnn-family-paradigm-a)
    - [PLRNN Family (Paradigm B)](#plrnn-family-paradigm-b)
    - [Lowrank RNN Model (Paradigm A/B)](#lowrank-rnn-model-paradigm-ab)
+   - [Constrained RNN Model (Paradigm A)](#constrained-rnn-model-paradigm-a)
+   - [Connectome-Constrained RNN Model (Paradigm B)](#connectome-constrained-rnn-model-paradigm-b)
    - [Latent Circuit Model (Paradigm A)](#latent-circuit-model-paradigm-a)
    - [Tiny RNN Model (Paradigm B)](#tiny-rnn-model-paradigm-b--behavioral-fitting)
 6. [Data Layer](#6-data-layer)
@@ -714,6 +716,204 @@ model2 = LowrankRNNModel.from_pretrained("models/lowrank_rdm/")
 - `hidden_size`, `input_size`, `output_size`, `rank`, `alpha`, `noise_std` and the
   alias `non_linearity` are exposed for backward compatibility with reference analysis code.
 - `print(model)` now shows config fields and parameter shapes.
+
+---
+
+### Constrained RNN Model (Paradigm A)
+
+**Module**: `neuralrnn.models.constrained_rnn`
+
+CTRNN with hard structural masks on input/recurrent/output weights, plus three common constrained variants:
+spatially-embedded RNN (`se_rnn`), sparse RNN (`sparse_rnn`), and modular RNN (`modular_rnn`).
+
+#### `ConstrainedRNNConfig`
+
+```python
+class ConstrainedRNNConfig(CTRNNConfig):
+    model_type = "constrained_rnn"
+
+    def __init__(
+        self,
+        input_dim: int = 3,
+        latent_dim: int = 64,
+        output_dim: int = 3,
+        dt: float | None = 100.0,
+        tau: float = 100.0,
+        activation: str = "relu",
+        rec_mask: list | np.ndarray | None = None,   # (M, M) recurrent mask
+        in_mask: list | np.ndarray | None = None,    # (input_dim, M) input mask
+        out_mask: list | np.ndarray | None = None,   # (M, output_dim) output mask
+        **kwargs,
+    ) -> None: ...
+```
+
+#### `SERNNConfig`
+
+```python
+class SERNNConfig(ConstrainedRNNConfig):
+    model_type = "se_rnn"
+
+    def __init__(
+        self,
+        grid_shape: tuple | list | None = None,      # e.g. (5, 5, 4) for 100 units in 3D
+        embedding_dim: int | None = 3,               # 2 or 3
+        distance_power: float = 1.0,
+        se1_weight: float = 0.5,                     # spatial L1 coefficient
+        comms_factor: float = 1.0,                   # communicability exponent (0 to disable)
+        distance_metric: str = "euclidean",
+        orthogonal_init: bool = True,
+        **kwargs,
+    ) -> None: ...
+```
+
+#### `SparseRNNConfig`
+
+```python
+class SparseRNNConfig(ConstrainedRNNConfig):
+    model_type = "sparse_rnn"
+
+    def __init__(
+        self,
+        sparsity: float = 0.1,                       # fraction of recurrent connections kept
+        allow_self_connections: bool = False,
+        seed: int | None = 42,
+        **kwargs,
+    ) -> None: ...
+```
+
+#### `ModularRNNConfig`
+
+```python
+class ModularRNNConfig(ConstrainedRNNConfig):
+    model_type = "modular_rnn"
+
+    def __init__(
+        self,
+        n_modules: int = 4,
+        p_inter: float = 0.05,                       # inter-module connection probability
+        intra_density: float = 1.0,                  # intra-module connection density
+        allow_self_connections: bool = False,
+        seed: int | None = 42,
+        **kwargs,
+    ) -> None: ...
+```
+
+#### `ConstrainedRNNModel`
+
+```python
+@register_model("constrained_rnn")
+class ConstrainedRNNModel(CTRNNModel):
+    config_class = ConstrainedRNNConfig
+
+    # Recurrence applies rec_mask/in_mask; readout applies out_mask
+    def recurrence(self, x_t, z_prev, *, inputs=None) -> Tensor: ...
+    def readout(self, z_t) -> Tensor: ...
+
+    def constraint_loss(self) -> Tensor: ...        # base returns 0; se_rnn overrides
+```
+
+#### `SERNNModel` / `SparseRNNModel` / `ModularRNNModel`
+
+```python
+@register_model("se_rnn")
+class SERNNModel(ConstrainedRNNModel):
+    config_class = SERNNConfig
+    # constraint_loss() returns distance-weighted L1 + optional communicability
+    def get_neuron_positions(self) -> np.ndarray: ...
+
+@register_model("sparse_rnn")
+class SparseRNNModel(ConstrainedRNNModel): ...
+
+@register_model("modular_rnn")
+class ModularRNNModel(ConstrainedRNNModel): ...
+```
+
+#### `ConstrainedSupervisedObjective`
+
+**Module**: `neuralrnn.train.objectives.constrained`
+
+```python
+class ConstrainedSupervisedObjective(SupervisedObjective):
+    def __init__(self, task_type: str = "classification", constraint_weight: float = 0.0): ...
+```
+
+Adds `constraint_weight * model.constraint_loss()` to the supervised task loss. Use with `se_rnn`;
+for hard-masked sparse/modular RNNs the standard `SupervisedObjective` is sufficient.
+
+---
+
+### Connectome-Constrained RNN Model (Paradigm B)
+
+**Module**: `neuralrnn.models.connectome_rnn`
+
+Firing-rate RNN for the teacher–student paradigm of Beiran & Litwin-Kumar (2025). The recurrent weight matrix can be fixed (the connectome) while per-neuron gains and biases are the trainable single-neuron parameters.
+
+#### `ConnectomeRNNConfig`
+
+```python
+class ConnectomeRNNConfig(NeuralRNNConfig):
+    model_type = "connectome_rnn"
+
+    def __init__(
+        self,
+        input_dim: int = 0,                # External input dimension K
+        latent_dim: int = 64,              # Number of hidden units N
+        output_dim: int = 64,              # Readout dimension
+        dt: float | None = None,           # Euler step (None => alpha=1)
+        tau: float = 1.0,                  # Time constant
+        activation: str = "softplus",      # "softplus" / "relu" / "tanh"
+        activation_beta: float = 1.0,      # Beta parameter for softplus
+        fixed_recurrent_weight: list | np.ndarray | None = None,  # (N, N) shared J
+        dale: bool = False,                # Dale E/I constraint
+        ei_ratio: float = 0.7,             # Excitatory fraction
+        readout_e_only: bool = False,      # Readout from excitatory units only
+        trainable_gains: bool = True,      # Train per-neuron gains
+        trainable_biases: bool = True,     # Train per-neuron biases
+        trainable_recurrent: bool = True,  # Train recurrent weights
+        trainable_input: bool = True,      # Train input weights
+        trainable_output: bool = True,     # Train readout weights
+        sigma_rec: float = 0.0,            # Recurrent noise std
+        **kwargs,
+    ) -> None: ...
+```
+
+#### `ConnectomeRNNModel`
+
+```python
+@register_model("connectome_rnn")
+class ConnectomeRNNModel(NeuralDynamicsModel):
+    config_class = ConnectomeRNNConfig
+
+    # Latent state z is the input current x.
+    # Recurrence: x_t = (1-alpha)*x_{t-1} + alpha*(J r_{t-1} + W_in u_t + b_rec)
+    # Firing rate: r_t = gain * phi(z_t + bias)
+    # Readout:      y_t = W_out r_t + b_out
+    def recurrence(self, x_t, z_prev, *, inputs=None) -> Tensor: ...
+    def readout(self, z_t) -> Tensor: ...
+
+    def firing_rate(self, z: Tensor) -> Tensor: ...      # r = gain * phi(z + bias)
+    def get_firing_rates(self, states: Tensor) -> Tensor: ...  # convenience over trajectory
+```
+
+**Usage example**:
+
+```python
+from neuralrnn import AutoConfig, AutoModel
+import numpy as np
+
+N = 300
+J = np.random.randn(N, N).astype(np.float32) * 0.5 / np.sqrt(N)
+
+cfg = AutoConfig.for_model(
+    'connectome_rnn',
+    input_dim=2, latent_dim=N, output_dim=2,
+    dt=0.1, tau=1.0,
+    activation='softplus', activation_beta=1.0,
+    fixed_recurrent_weight=J,
+    trainable_gains=True, trainable_biases=True,
+)
+model = AutoModel.from_config(cfg)
+```
 
 ---
 

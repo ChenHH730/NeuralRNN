@@ -1,8 +1,8 @@
 """Mante et al. context-dependent decision-making task.
 
 6 inputs (2 context, 2 motion, 2 color), 2 outputs.
-Similar to SiegelMiller but with different timing and a training mask that
-excludes the mid-trial period.
+Trial structure: context cue -> delay -> stimulus -> decision.
+The training mask is active only during the decision period.
 
 Reference: Mante et al. (2013), Nature.
 Ported from Langdon & Engel (2025) reference implementation.
@@ -55,19 +55,21 @@ def generate_input_target_stream(
 def generate_trials(n_trials=25, alpha=0.2, sigma_in=0.01, baseline=0.2, n_coh=6, n_t=75):
     """Create trials for the Mante task.
 
-    Note: This task returns targets pre-sliced by a training_mask that excludes
-    the mid-trial period. The mask is returned as the third element.
+    Trial structure: context cue (steps ~7-24) -> delay -> stimulus
+    (steps ~30-74) -> decision (steps ~55-74). The context cue precedes the
+    stimulus, matching the standard Mante et al. (2013) design. The training
+    mask is active only during the decision period.
 
     Returns:
         inputs: (N, n_t, 6) tensor.
-        targets: (N, len(training_mask), 2) tensor — pre-sliced targets.
-        mask: numpy index array — training_mask indices.
+        targets: (N, n_t, 2) tensor — full-length target sequence.
+        mask: (N, n_t, 2) float tensor — 1 during decision period, 0 otherwise.
         conditions: list of dicts.
     """
     cohs = np.linspace(-0.2, 0.2, n_coh)
 
-    cue_on = int(round(n_t * 0.4))
-    cue_off = int(round(n_t))
+    cue_on = int(round(n_t * 0.1))
+    cue_off = int(round(n_t * 0.33))
     stim_on = int(round(n_t * 0.4))
     stim_off = int(round(n_t))
     dec_on = int(round(n_t * 0.75))
@@ -102,10 +104,11 @@ def generate_trials(n_trials=25, alpha=0.2, sigma_in=0.01, baseline=0.2, n_coh=6
 
     perm = np.random.permutation(len(inputs))
     inputs = torch.tensor(inputs[perm, :, :]).float()
+    targets = torch.tensor(targets[perm, :, :]).float()
     conditions = [conditions[index] for index in perm]
 
-    # Training mask: pre-stimulus + decision period (excludes mid-trial)
-    training_mask = np.append(range(stim_on), range(dec_on - 1, dec_off - 1))
-    targets = torch.tensor(targets[:, training_mask, :]).float()
+    # Decision-period mask (1 during decision, 0 otherwise)
+    mask = torch.zeros_like(targets)
+    mask[:, dec_on - 1:dec_off, :] = 1.0
 
-    return inputs, targets, training_mask, conditions
+    return inputs, targets, mask, conditions

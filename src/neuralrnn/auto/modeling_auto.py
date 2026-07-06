@@ -29,6 +29,11 @@ _LAZY_MODULES: dict[str, str] = {
     "latent_circuit": "neuralrnn.models.latent_circuit.modeling_latent_circuit",
     "tiny_rnn": "neuralrnn.models.tiny_rnn.modeling_tiny_rnn",
     "lowrank_rnn": "neuralrnn.models.lowrank.modeling_lowrank",
+    "constrained_rnn": "neuralrnn.models.constrained_rnn.modeling_constrained_rnn",
+    "se_rnn": "neuralrnn.models.constrained_rnn.modeling_constrained_rnn",
+    "sparse_rnn": "neuralrnn.models.constrained_rnn.modeling_constrained_rnn",
+    "modular_rnn": "neuralrnn.models.constrained_rnn.modeling_constrained_rnn",
+    # "connectome_rnn": "neuralrnn.models.connectome_rnn.modeling_connectome_rnn",
     # Add after porting:
     # "lfads": "neuralrnn.models.lfads.modeling_lfads",
 }

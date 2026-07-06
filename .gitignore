@@ -12,6 +12,8 @@ notebook/test_analysis_fixes.py
 notebook/test.ipynb
 notebook/*.py
 docs/papers/*_cn.md
+**/*connectome*
+**/*_executed.ipynb
 # C extensions
 *.so
 

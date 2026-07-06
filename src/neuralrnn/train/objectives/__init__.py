@@ -5,6 +5,7 @@ from .teacher_forcing import TeacherForcingObjective, generalized_teacher_forcin
 from .behavioral import BehavioralObjective
 from .variational import VariationalObjective
 from .latent_circuit import LatentCircuitObjective
+from .constrained import ConstrainedSupervisedObjective
 
 __all__ = [
     "Objective",
@@ -14,4 +15,6 @@ __all__ = [
     "BehavioralObjective",
     "VariationalObjective",
     "LatentCircuitObjective",
+    "ConstrainedSupervisedObjective",
 ]
+

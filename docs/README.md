@@ -23,6 +23,8 @@
    - 已就绪示例：[ctrnn.md](papers/ctrnn.md)（范式A 参考）、[plrnn.md](papers/plrnn.md)（范式B PLRNN 家族参考，现包含 shallowPLRNN、dendPLRNN、ALRNN）。
    - [eirnn.md](papers/eirnn.md)：E-I RNN（Song et al., 2016）—— Dale 约束下的兴奋-抑制 RNN。
    - [lowrank_rnn.md](papers/lowrank_rnn.md)：低秩 RNN（Dubreuil et al., 2022；Valente et al., 2022）—— 任务优化与 LINT 动力学重构。
+   - [constrained_rnn.md](papers/constrained_rnn.md)：Constrained RNN 家族 —— seRNN、sparse RNN、modular RNN 的结构约束与空间嵌入。
+   - [connectome_constrained_rnn.md](papers/connectome_constrained_rnn.md)：Connectome-Constrained RNN（Beiran & Litwin-Kumar, 2025）—— 连接组约束下的教师-学生网络与神经元记录选择。
 
 教程（notebook）见仓库根的 [`notebook/`](../notebook/)。
 

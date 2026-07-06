@@ -14,8 +14,7 @@ For each paper integrated into NeuralRNN, we keep a "method note": it explains w
 | Tiny RNN (behavior fitting) | Behavior | `models/tiny_rnn` + CV | [tiny_rnn.md](tiny_rnn.md) | ✅ Ready |
 | Latent Circuit | A | `models/latent_circuit` | [latent_circuit.md](latent_circuit.md) | ✅ Ready |
 | Echo-State / Critical Initialization | A | `models/ctrnn` + `freeze_*` | [esn.md](esn.md) | ✅ Ready |
-| LFADS | B | `models/lfads` + `VariationalObjective` | _to be written_ | ⬜ Pending port |
-| MARBLE (manifold geometry) | Analysis | `analysis/manifold` | _to be written_ | ⬜ Pending port |
-| neuralflow (continuous-time latent flow field) | Analysis | `analysis/manifold` | _to be written_ | ⬜ Pending port |
+| Constrained RNN (seRNN / sparse / modular) | A | `models/constrained_rnn` | [constrained_rnn.md](constrained_rnn.md) | ✅ Ready |
+| Connectome-Constrained RNN | B | `models/connectome_rnn` | [connectome_constrained_rnn.md](connectome_constrained_rnn.md) | ✅ Ready |
 
 When adding a new paper: copy [_TEMPLATE.md](_TEMPLATE.md) → rename → fill in, and add a row to the table above.
