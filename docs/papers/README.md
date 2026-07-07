@@ -16,5 +16,6 @@ For each paper integrated into NeuralRNN, we keep a "method note": it explains w
 | Echo-State / Critical Initialization | A | `models/ctrnn` + `freeze_*` | [esn.md](esn.md) | ✅ Ready |
 | Constrained RNN (seRNN / sparse / modular) | A | `models/constrained_rnn` | [constrained_rnn.md](constrained_rnn.md) | ✅ Ready |
 | Connectome-Constrained RNN | B | `models/connectome_rnn` | [connectome_constrained_rnn.md](connectome_constrained_rnn.md) | ✅ Ready |
+| Short-Term Plasticity RNN | A | inline (`notebook/11_STP_RNN_paradigmA.ipynb`) | [stp_rnn.md](stp_rnn.md) | 🚧 Notebook port |
 
 When adding a new paper: copy [_TEMPLATE.md](_TEMPLATE.md) → rename → fill in, and add a row to the table above.

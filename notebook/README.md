@@ -16,10 +16,7 @@ Every notebook is to implement a proposed method from previous works, with the s
 | [09_echo_state_network_paradigmA.ipynb](09_echo_state_network_paradigmA.ipynb) | Task / Reservoir | critical_init (Pachitariu et al., 2026) | `freeze_*` · critical recurrent init · readout-only training · `find_fixed_points` · `emax` comparison |
 | [10_constrained_RNN_paradigmA.ipynb](10_constrained_RNN_paradigmA.ipynb) | Task | seRNN; critical_init sparse/modular | `constrained_rnn` · `se_rnn` · `sparse_rnn` · `modular_rnn` · spatial regularizer · structural masks · Mante · DelayComparison line attractor |
 | [10a_constrained_RNN_paradigmB.ipynb](10a_constrained_RNN_paradigmB.ipynb) | Reconstruction | Beiran & Litwin-Kumar (2025) | `connectome_rnn` · teacher-student · recordings break degeneracy · stiff/sloppy modes · optimal neuron selection |
-
-## ongoing notebook (see PORTING_GUIDE)
-
-- LFADS：用 `VariationalObjective` 做尖峰序列的潜动力推断（配方5）
+| [11_STP_RNN_paradigmA.ipynb](11_STP_RNN_paradigmA.ipynb) | Task | Masse et al. (2019) | inline STP-RNN · DMS · DRMS · ABBA · activity-silent maintenance · manipulation-driven persistent activity |
 
 ## environment
 

@@ -18,6 +18,7 @@
    - [Lowrank RNN Model (Paradigm A/B)](#lowrank-rnn-model-paradigm-ab)
    - [Constrained RNN Model (Paradigm A)](#constrained-rnn-model-paradigm-a)
    - [Connectome-Constrained RNN Model (Paradigm B)](#connectome-constrained-rnn-model-paradigm-b)
+   - [Short-Term Plasticity RNN (Paradigm A)](#short-term-plasticity-rnn-paradigm-a)
    - [Latent Circuit Model (Paradigm A)](#latent-circuit-model-paradigm-a)
    - [Tiny RNN Model (Paradigm B)](#tiny-rnn-model-paradigm-b--behavioral-fitting)
 6. [Data Layer](#6-data-layer)
@@ -914,6 +915,38 @@ cfg = AutoConfig.for_model(
 )
 model = AutoModel.from_config(cfg)
 ```
+
+---
+
+### Short-Term Plasticity RNN (Paradigm A)
+
+**Status**: Currently implemented inline in `notebook/11_STP_RNN_paradigmA.ipynb`; will be
+moved to `neuralrnn.models.stp_rnn` once the reproduction is validated.
+
+STP-RNN from Masse et al. (2019). Continuous-time ReLU RNN with Dale constraints and
+per-neuron short-term synaptic plasticity (facilitating / depressing). Used to study
+activity-silent maintenance (DMS) vs. manipulation-driven persistent activity (DRMS,
+ABBA).
+
+Key inline classes:
+
+```python
+class STPRNNConfig(NeuralRNNConfig):
+    model_type = "stp_rnn"
+    # input_dim=24, latent_dim=100, output_dim=3
+    # dt=10.0, tau=100.0, ei_ratio=0.8
+    # spike_cost=0.02, sigma_rec=0.5, sigma_in=0.1
+
+@register_model("stp_rnn")
+class STPRNNModel(NeuralDynamicsModel):
+    config_class = STPRNNConfig
+    # Recurrence with (h, syn_x, syn_u) state of size 3*M
+    def recurrence(self, x_t, z_prev, *, inputs=None) -> Tensor: ...
+    def readout(self, z_t) -> Tensor: ...
+```
+
+See `docs/papers/stp_rnn.md` and `notebook/11_STP_RNN_paradigmA.ipynb` for the full
+equations, task generators, and analysis workflow.
 
 ---
 
