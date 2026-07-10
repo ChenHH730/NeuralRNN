@@ -17,7 +17,8 @@ class CTRNNConfig(NeuralRNNConfig):
         output_dim: Readout dimension (e.g. number of task classes)
         dt:         Discretization step; alpha = dt/tau
         tau:        Time constant
-        activation: Nonlinearity (relu / tanh / softplus)
+        activation: Nonlinearity name. Supported: relu, tanh, sigmoid, softplus,
+            leaky_relu/leakyrelu, elu, selu, gelu, silu/swish (default "relu").
         dale:       Whether to enforce Dale constraints (excitatory/inhibitory separation); True for EI variant
         ei_ratio:   Fraction of excitatory units (effective when dale=True)
         trainable_h0: Whether the initial state is trainable

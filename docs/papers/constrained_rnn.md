@@ -32,7 +32,7 @@ $$
 
 where:
 - $\alpha = \Delta t / \tau$,
-- $\phi$ is the activation (ReLU by default),
+- $\phi$ is the activation (ReLU by default; any name supported by `neuralrnn.activations.get_activation` can be used),
 - $M_{\text{rec}}$, $M_{\text{in}}$, $M_{\text{out}}$ are optional binary masks (default all ones),
 - $\odot$ denotes elementwise multiplication.
 

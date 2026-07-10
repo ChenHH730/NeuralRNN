@@ -22,6 +22,7 @@ import torch.nn as nn
 
 from ...modeling_utils import NeuralDynamicsModel, DynamicsModelOutput
 from ...auto.modeling_auto import register_model
+from ...activations import get_activation
 from .configuration_latent_circuit import LatentCircuitConfig
 
 
@@ -54,6 +55,7 @@ class LatentCircuitModel(NeuralDynamicsModel):
 
         self.alpha = config.dt / config.tau  # Euler step size
         self.sigma_rec = config.sigma_rec
+        self.act = get_activation(config.activation)
 
         # Recurrent connectivity (n x n, no bias)
         self.w_rec = nn.Linear(n, n, bias=False)
@@ -184,8 +186,8 @@ class LatentCircuitModel(NeuralDynamicsModel):
             noise = noise_std * torch.randn_like(pre)
             pre = pre + noise
 
-        # Euler discretization with ReLU activation
-        z_t = (1 - self.alpha) * z_prev + self.alpha * torch.relu(pre)
+        # Euler discretization with the configured activation
+        z_t = (1 - self.alpha) * z_prev + self.alpha * self.act(pre)
         return z_t
 
     def readout(self, z_t: torch.Tensor) -> torch.Tensor:

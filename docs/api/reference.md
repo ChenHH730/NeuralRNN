@@ -86,7 +86,7 @@ class NeuralRNNConfig:
         latent_dim: int = 0,        # Latent state dimension M
         output_dim: int = 0,        # Readout dimension
         dt: float | None = None,    # Euler step for continuous-time models
-        activation: str = "relu",   # Nonlinearity name
+        activation: str = "relu",   # Nonlinearity name (see neuralrnn.activations.SUPPORTED_ACTIVATIONS)
         freeze_input: bool = False,      # Freeze input-layer parameters
         freeze_recurrent: bool = False,  # Freeze recurrent / hidden parameters
         freeze_output: bool = False,     # Freeze output / readout parameters
@@ -122,6 +122,23 @@ cfg2 = NeuralRNNConfig.from_pretrained("my_config/")
 ```
 
 > **Porting note**: Every model family must define a `<Family>Config(NeuralRNNConfig)` subclass with a unique `model_type`. All constructor hyperparameters from the original paper code must be stored as config fields — never hardcoded in the model `__init__`.
+
+---
+
+## Activation Functions
+
+All built-in models select their nonlinearities through `neuralrnn.activations.get_activation(name, **kwargs)`:
+
+```python
+from neuralrnn.activations import get_activation, SUPPORTED_ACTIVATIONS
+
+fn = get_activation("leaky_relu", negative_slope=0.1)
+print(SUPPORTED_ACTIVATIONS)
+```
+
+Supported names: `relu`, `tanh`, `sigmoid`, `softplus` (with `beta`), `leaky_relu`/`leakyrelu` (with `negative_slope`), `elu` (with `alpha`), `selu`, `gelu`, `silu`/`swish`.
+
+Each model keeps its original default activation, so existing configs and saved checkpoints are unaffected.
 
 ---
 
@@ -354,7 +371,8 @@ class CTRNNConfig(NeuralRNNConfig):
         output_dim: int = 3,        # Number of output classes
         dt: float | None = 100.0,   # Euler step (None = discrete vanilla)
         tau: float = 100.0,         # Time constant
-        activation: str = "relu",   # "relu" / "tanh" / "softplus"
+        activation: str = "relu",   # Nonlinearity: relu, tanh, sigmoid, softplus,
+                                    # leaky_relu/leakyrelu, elu, selu, gelu, silu/swish
         dale: bool = False,         # Dale constraint (E/I separation)
         ei_ratio: float = 0.8,      # Excitatory fraction (when dale=True)
         trainable_h0: bool = False, # Trainable initial state
@@ -592,8 +610,10 @@ class LowrankRNNConfig(NeuralRNNConfig):
         tau: float = 100.0,                   # Membrane time constant
         add_bias: bool = False,               # Whether b is trainable
         scale_by_hidden_size: bool = True,    # Divide rec/output terms by N
-        activation: str = "tanh",             # Hidden activation ("tanh"/"relu")
-        output_activation: str = "tanh",      # Readout activation ("tanh"/"relu")
+        activation: str = "tanh",             # Hidden activation: relu, tanh, sigmoid,
+                                              # softplus, leaky_relu/leakyrelu, elu, selu,
+                                              # gelu, silu/swish
+        output_activation: str = "tanh",      # Readout activation: same supported names
         train_wi: bool = True,                # Train input weights
         train_wo: bool = True,                # Train output weights
         train_wrec: bool = True,              # Train m, n low-rank factors
@@ -863,7 +883,8 @@ class ConnectomeRNNConfig(NeuralRNNConfig):
         output_dim: int = 64,              # Readout dimension
         dt: float | None = None,           # Euler step (None => alpha=1)
         tau: float = 1.0,                  # Time constant
-        activation: str = "softplus",      # "softplus" / "relu" / "tanh"
+        activation: str = "softplus",      # Nonlinearity: relu, tanh, sigmoid, softplus,
+                                            # leaky_relu/leakyrelu, elu, selu, gelu, silu/swish
         activation_beta: float = 1.0,      # Beta parameter for softplus
         fixed_recurrent_weight: list | np.ndarray | None = None,  # (N, N) shared J
         dale: bool = False,                # Dale E/I constraint
@@ -972,7 +993,10 @@ class LatentCircuitConfig(NeuralRNNConfig):
         dt: float = 40.0,           # Discretization step (ms)
         tau: float = 200.0,         # Time constant (ms), alpha = dt/tau
         sigma_rec: float = 0.15,    # Recurrent noise std
-        activation: str = "relu",   # Nonlinearity (only relu supported)
+        activation: str = "relu",   # Recurrence nonlinearity: relu, tanh, sigmoid,
+                                    # softplus, leaky_relu/leakyrelu, elu, selu, gelu,
+                                    # silu/swish. Connectivity masks in apply_constraints()
+                                    # remain hard ReLU constraints regardless.
         **kwargs,
     ) -> None: ...
 ```

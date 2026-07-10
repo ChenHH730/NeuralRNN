@@ -36,7 +36,7 @@ y_t &= \phi_{\text{out}}(z_t) \, W^{out}_{\text{full}} / N
 \end{aligned}
 $$
 
-where $\alpha = dt/\tau$, $\phi$ is `tanh` or `relu`, and $W^{in}_{\text{full}}$, $W^{out}_{\text{full}}$ apply per-channel scaling (`si`, `so`).
+where $\alpha = dt/\tau$, $\phi$ and $\phi_{\text{out}}$ are any activation supported by `neuralrnn.activations.get_activation` (default `tanh`), and $W^{in}_{\text{full}}$, $W^{out}_{\text{full}}$ apply per-channel scaling (`si`, `so`).
 
 ### Key hyperparameters
 
@@ -46,8 +46,8 @@ where $\alpha = dt/\tau$, $\phi$ is `tanh` or `relu`, and $W^{in}_{\text{full}}$
 | `rank` (`R`) | 1 | Rank of $W^{rec}$ |
 | `alpha` | 0.2 | Euler step $dt/\tau$ |
 | `noise_std` | 0.05 | Recurrent Gaussian noise |
-| `activation` | `"tanh"` | Hidden activation |
-| `output_activation` | `"tanh"` | Readout activation |
+| `activation` | `"tanh"` | Hidden activation (any name supported by `get_activation`) |
+| `output_activation` | `"tanh"` | Readout activation (any name supported by `get_activation`) |
 | `scale_by_hidden_size` | `True` | Divide recurrent/output by $N$ |
 
 ## 3. How to use this method in our framework

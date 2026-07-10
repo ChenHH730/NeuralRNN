@@ -29,7 +29,11 @@ class LatentCircuitConfig(NeuralRNNConfig):
         dt:             Discretization time step in ms (default 40).
         tau:            Time constant in ms (default 200). alpha = dt/tau = 0.2.
         sigma_rec:      Recurrent noise standard deviation (default 0.15).
-        activation:     Nonlinearity (default "relu", only relu supported).
+        activation:     Nonlinearity name for the recurrence. Supported: relu,
+            tanh, sigmoid, softplus, leaky_relu/leakyrelu, elu, selu, gelu,
+            silu/swish (default "relu"). Note that the connectivity masks in
+            ``apply_constraints`` remain hard ReLU constraints regardless of
+            this choice.
     """
 
     model_type = "latent_circuit"

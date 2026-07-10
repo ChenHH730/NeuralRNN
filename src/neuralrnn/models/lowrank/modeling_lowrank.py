@@ -22,10 +22,8 @@ import numpy as np
 
 from ...modeling_utils import NeuralDynamicsModel, DynamicsModelOutput
 from ...auto.modeling_auto import register_model
+from ...activations import get_activation
 from .configuration_lowrank import LowrankRNNConfig
-
-
-_ACT = {"relu": torch.relu, "tanh": torch.tanh, "softplus": torch.nn.functional.softplus}
 
 
 @register_model("lowrank_rnn")
@@ -48,8 +46,8 @@ class LowrankRNNModel(NeuralDynamicsModel):
         R = config.rank
         self.alpha = config.alpha
         self.noise_std = config.noise_std
-        self.act = _ACT[config.activation]
-        self.output_act = _ACT[config.output_activation]
+        self.act = get_activation(config.activation)
+        self.output_act = get_activation(config.output_activation)
 
         # ---- Expose attributes for backward compat with reference code ----
         self.hidden_size = N

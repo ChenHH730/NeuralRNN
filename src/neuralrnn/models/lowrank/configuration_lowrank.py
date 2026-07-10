@@ -45,8 +45,11 @@ class LowrankRNNConfig(NeuralRNNConfig):
         add_bias: Whether to add a bias term b to the pre-activation (default False).
         scale_by_hidden_size: If True, divide recurrent and output terms by N
             (default True, matches both original codebases).
-        activation: Activation function for hidden state ('tanh' or 'relu').
-        output_activation: Activation for readout ('tanh' or 'relu').
+        activation: Activation function for hidden state. Supported: relu, tanh,
+            sigmoid, softplus, leaky_relu/leakyrelu, elu, selu, gelu, silu/swish
+            (default "tanh").
+        output_activation: Activation for readout. Same supported names as
+            ``activation`` (default "tanh").
         train_wi: Whether to train input weights (default True).
         train_wo: Whether to train output weights (default True).
         train_wrec: Whether to train the low-rank m,n vectors (default True).

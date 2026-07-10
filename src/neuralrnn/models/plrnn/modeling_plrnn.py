@@ -58,7 +58,8 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
 
     # ---------------- hard contract ----------------
     def recurrence(self, x_t, z_prev, *, inputs=None):
-        # z_prev:(B,M) -> z_t:(B,M), numerically consistent with the original shallowPLRNN.forward
+        # PLRNN is defined by a piecewise-linear ReLU nonlinearity; changing it
+        # would invalidate the analytic Jacobian / fixed-point machinery below.
         z = self.A * z_prev + torch.relu(z_prev @ self.W2.T + self.h2) @ self.W1.T + self.h1
         if self.C is not None and x_t is not None:
             z = z + x_t @ self.C.T

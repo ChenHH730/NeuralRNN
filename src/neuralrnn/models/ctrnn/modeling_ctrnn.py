@@ -15,11 +15,10 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 
+from ...activations import get_activation
 from ...modeling_utils import NeuralDynamicsModel
 from ...auto.modeling_auto import register_model
 from .configuration_ctrnn import CTRNNConfig, EIRNNConfig
-
-_ACT = {"relu": torch.relu, "tanh": torch.tanh, "softplus": torch.nn.functional.softplus}
 
 
 @register_model("ctrnn")
@@ -30,7 +29,7 @@ class CTRNNModel(NeuralDynamicsModel):
         super().__init__(config)
         M = config.latent_dim
         self.alpha = 1.0 if config.dt is None else config.dt / config.tau
-        self.act = _ACT[config.activation]
+        self.act = get_activation(config.activation)
 
         self.input2h = nn.Linear(config.input_dim, M)
         self.h2h = nn.Linear(M, M)

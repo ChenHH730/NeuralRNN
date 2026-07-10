@@ -26,7 +26,9 @@ class NeuralRNNConfig:
         latent_dim : latent state dimension M
         output_dim : readout dimension (usually == latent_dim in DSR)
         dt         : discretization step for continuous-time models (None for discrete models)
-        activation : nonlinearity name
+        activation : nonlinearity name. Supported names are defined in
+            ``neuralrnn.activations.SUPPORTED_ACTIVATIONS`` (relu, tanh, sigmoid,
+            softplus, leaky_relu/leakyrelu, elu, selu, gelu, silu/swish).
     Subclasses only need to add their own fields after super().__init__(...).
     """
 

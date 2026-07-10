@@ -39,6 +39,9 @@ __version__ = "0.2.7.dev0"
 from .configuration_utils import NeuralRNNConfig
 from .modeling_utils import NeuralDynamicsModel, DynamicsModelOutput
 
+# Unified activation factory
+from .activations import get_activation, SUPPORTED_ACTIVATIONS
+
 # Auto factories
 from .auto import (
     AutoConfig, AutoModel,
@@ -66,6 +69,7 @@ from . import visualization
 __all__ = [
     "__version__",
     "NeuralRNNConfig", "NeuralDynamicsModel", "DynamicsModelOutput",
+    "get_activation", "SUPPORTED_ACTIVATIONS",
     "AutoConfig", "AutoModel", "register_config", "register_model",
     "CONFIG_REGISTRY", "MODEL_REGISTRY",
     "BaseDataset", "StandardScaler", "TimeSeriesDataset", "TrialTimeseriesDataset", "CustomDataset",
