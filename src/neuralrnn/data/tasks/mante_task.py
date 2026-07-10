@@ -1,17 +1,30 @@
-"""Mante et al. context-dependent decision-making task.
+"""Mante et al. (2013) context-dependent decision-making task.
 
-6 inputs (2 context, 2 motion, 2 color), 2 outputs.
-Trial structure: context cue -> delay -> stimulus -> decision.
-The training mask is active only during the decision period.
+Also commonly referred to as the Siegel-Miller task (Siegel et al., 2015) when
+used in the latent-circuit literature. Both names describe the same paradigm:
+a context cue instructs the network to attend to either motion or color evidence
+and report the sign of the attended coherence.
 
-Reference: Mante et al. (2013), Nature.
-Ported from Langdon & Engel (2025) reference implementation.
+Task family: context-dependent perceptual decision making.
+Inputs:  6 channels [motion_ctx, color_ctx, motion_r, motion_l, color_r, color_l].
+Targets: 2 channels [choice_right, choice_left] active during decision.
+
+References:
+    Mante et al. (2013), "Context-dependent computation by recurrent dynamics
+        in prefrontal cortex", Nature.
+    Siegel et al. (2015), "Neural signatures of categorization in temporal
+        lobe neurons", Nature Neuroscience.
+    Langdon & Engel (2025) reference implementation.
 """
 import numpy as np
 import torch
 
 
-def generate_input_target_stream(
+CHANNEL_ORDER = ["motion_ctx", "color_ctx", "motion_r", "motion_l", "color_r", "color_l"]
+OUTPUT_ORDER = ["choice_r", "choice_l"]
+
+
+def _generate_single_trial(
     context, motion_coh, color_coh, baseline, alpha, sigma_in,
     n_t, cue_on, cue_off, stim_on, stim_off, dec_on, dec_off,
 ):
@@ -52,21 +65,43 @@ def generate_input_target_stream(
     return input_stream, target_stream
 
 
-def generate_trials(n_trials=25, alpha=0.2, sigma_in=0.01, baseline=0.2, n_coh=6, n_t=75):
-    """Create trials for the Mante task.
+def generate_trials(
+    n_trials=25,
+    alpha=0.2,
+    sigma_in=0.01,
+    baseline=0.2,
+    n_coh=6,
+    cohs=None,
+    n_t=75,
+):
+    """Create trials for the Mante / Siegel-Miller task.
 
     Trial structure: context cue (steps ~7-24) -> delay -> stimulus
     (steps ~30-74) -> decision (steps ~55-74). The context cue precedes the
     stimulus, matching the standard Mante et al. (2013) design. The training
     mask is active only during the decision period.
 
+    Args:
+        n_trials: Number of trials per condition combination.
+        alpha: Time constant parameter (dt/tau).
+        sigma_in: Input noise standard deviation.
+        baseline: Baseline input level.
+        n_coh: Number of coherence levels (used only when ``cohs`` is None).
+        cohs: Optional list/array of coherence values. If provided, overrides
+            ``n_coh``.
+        n_t: Number of time steps per trial.
+
     Returns:
         inputs: (N, n_t, 6) tensor.
         targets: (N, n_t, 2) tensor — full-length target sequence.
         mask: (N, n_t, 2) float tensor — 1 during decision period, 0 otherwise.
-        conditions: list of dicts.
+        conditions: list of dicts with keys ``context``, ``motion_coh``,
+            ``color_coh``, ``correct_choice``.
     """
-    cohs = np.linspace(-0.2, 0.2, n_coh)
+    if cohs is None:
+        cohs = np.linspace(-0.2, 0.2, n_coh)
+    else:
+        cohs = np.asarray(cohs)
 
     cue_on = int(round(n_t * 0.1))
     cue_off = int(round(n_t * 0.33))
@@ -81,18 +116,18 @@ def generate_trials(n_trials=25, alpha=0.2, sigma_in=0.01, baseline=0.2, n_coh=6
     for context in ["motion", "color"]:
         for motion_coh in cohs:
             for color_coh in cohs:
-                for i in range(n_trials):
+                for _ in range(n_trials):
                     correct_choice = 1 if (
                         (context == "motion" and motion_coh > 0) or
                         (context == "color" and color_coh > 0)
                     ) else -1
                     conditions.append({
                         "context": context,
-                        "motion_coh": motion_coh,
-                        "color_coh": color_coh,
+                        "motion_coh": float(motion_coh),
+                        "color_coh": float(color_coh),
                         "correct_choice": correct_choice,
                     })
-                    inp, tgt = generate_input_target_stream(
+                    inp, tgt = _generate_single_trial(
                         context, motion_coh, color_coh, baseline, alpha, sigma_in,
                         n_t, cue_on, cue_off, stim_on, stim_off, dec_on, dec_off,
                     )

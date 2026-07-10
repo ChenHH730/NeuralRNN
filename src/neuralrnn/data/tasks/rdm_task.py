@@ -1,13 +1,17 @@
-"""Random Dot Motion (RDM) task.
+"""Random Dot Motion (RDM) perceptual decision-making task.
 
 A single noisy stimulus with variable coherence is presented. The network
-must report the sign of the coherence (left vs right).
+must report the sign of the coherence (left vs right). This is a classic
+perceptual decision-making / evidence-accumulation task, also called a
+single-coherence two-alternative forced-choice task.
 
-Timing (ms): fixation=100, stimulus=800, delay=100, decision=20
-Input:  1 channel (coherence signal + noise)
-Output: 1 channel (choice direction)
+Task family: perceptual decision making / evidence accumulation.
+Inputs:  1 channel (coherence signal + noise).
+Targets: 1 channel (choice direction: +1 or -1).
 
-Reference:
+Timing (ms): fixation=100, stimulus=800, delay=100, decision=20.
+
+References:
     Dubreuil et al. (2022), Nature Neuroscience.
     Valente et al. (2022), NeurIPS.
 """

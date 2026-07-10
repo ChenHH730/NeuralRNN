@@ -41,7 +41,7 @@ class NeurogymDataset(BaseDataset):
             import neurogym as ngym
         except ImportError as e:
             raise ImportError(
-                "neurogym is required: pip install 'neuralrnn[neurogym]' or pip install neurogym"
+                "neurogym is required: pip install neurogym"
             ) from e
 
         kwargs = dict(env_kwargs)

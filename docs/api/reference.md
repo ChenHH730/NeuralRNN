@@ -35,6 +35,7 @@
    - [Cross-Validation](#cross-validation)
 8. [Analysis Layer](#8-analysis-layer)
    - [Fixed Points](#fixed-points)
+   - [Fixed-Point Hyperparameter Guide](fixed_point.md)
    - [Linearization](#linearization)
    - [Vector Field](#vector-field)
    - [Dimensionality Reduction](#dimensionality-reduction)
@@ -1302,21 +1303,36 @@ class CognitiveTaskDataset(BaseDataset):
         """Returns {"inputs": (B,T,input_dim), "targets": (B,T,output_dim), "mask": (B,T,output_dim)}"""
 ```
 
-**Available task generators** (in `neuralrnn.data.tasks.TASK_REGISTRY`):
+**Available task generators** (in `neuralrnn.data.tasks.TASK_REGISTRY`). For a full catalog including parameter defaults, timing, overlap analysis, and notebook usage, see [`src/neuralrnn/data/tasks/tasks.md`](../../src/neuralrnn/data/tasks/tasks.md).
 
 | Key | Task | Input | Output | Description |
 |-----|------|-------|--------|-------------|
 | `rdm` | Random Dot Motion | 1 | 1 | Integrate noisy coherence signal; report sign |
-| `romo` | Parametric Working Memory | 1 | 1 | Compare two frequencies across delay |
+| `two_afc` | Two-Alternative Forced Choice | 1 | 1 | Backward-compatible alias for `rdm` |
 | `raposo` | Multisensory Decision | 4 | 1 | Attend to visual/auditory/both modalities |
-| `dms` | Delayed Match-to-Sample | 2 | 1 | Judge if two sequential stimuli match |
-| `lr_mante` | Ctx Decision (low-rank) | 4 | 1 | Context-dependent integration of color/motion |
-| `mante` | Ctx Decision (latent circuit) | 6 | 2 | Context-dependent decision with 2 outputs |
-| `mante_short` | Ctx Decision (short variant) | 6 | 2 | Shorter version of Mante |
-| `siegel_miller` | Siegel-Miller Task | 6 | 2 | Classical context-dependent decision making |
-| `two_afc` | Two-Alternative Forced Choice | 1 | 1 | Simple binary choice |
-| `delay_match_to_sample` | DMS (latent circuit) | 2 | 1 | Match-to-sample with pre-sliced mask |
-| `parametric_wm` | Parametric WM (latent circuit) | 1 | 1 | Working memory with variable delay |
+| `dms` | Delayed Match-to-Sample | 2 | 1 | Judge if two sequential A/B symbols match |
+| `dms_continuous` | Delayed Match-to-Sample (continuous) | 4 | 2 | Match-to-sample with continuous coherences |
+| `wm_angle` | Parametric WM (angle) | 2 | 2 | Remember and reproduce a circular angle |
+| `parametric_wm` | Parametric WM (angle) | 2 | 2 | Backward-compatible alias for `wm_angle` |
+| `wm_frequency` | Parametric WM (frequency) | 1 | 1 | Compare two frequencies across delay |
+| `romo` | Parametric WM (frequency) | 1 | 1 | Backward-compatible alias for `wm_frequency` |
+| `lr_mante` | Ctx Decision (low-rank) | 4 | 1 | Context-dependent integration of color/motion (low-rank format) |
+| `mante` | Ctx Decision (Mante 2013) | 6 | 2 | Context-dependent decision with 2 readout channels |
+| `siegel_miller` | Ctx Decision (Siegel 2015) | 6 | 2 | Backward-compatible alias for `mante` |
+| `multitask_yang` | Yang 20-task set | 85 | 33 | 20 simultaneous cognitive tasks with one-hot rule input |
+| `multitask_flexible` | Driscoll 15-task set | 20 | 3 | 15 flexible tasks with 2D circular stimuli/responses |
+
+**Multitask dataset wrappers**:
+```python
+from neuralrnn.data.tasks.multitask_yang_dataset import MultitaskYangDataset
+from neuralrnn.data.tasks.multitask_flexible_dataset import MultitaskFlexibleDataset
+
+# Yang et al. (2019) — contextdm1/contextdm2 oversampled 5x by default
+yang_ds = MultitaskYangDataset(batch_size=64, rule_prob_map={"contextdm1": 5.0, "contextdm2": 5.0})
+
+# Driscoll et al. (2024) — contextdelaydm1/contextdelaydm2 oversampled 5x by default
+flex_ds = MultitaskFlexibleDataset(batch_size=64)
+```
 
 **Usage**:
 ```python
@@ -1664,6 +1680,34 @@ class NumericFixedPointFinder:
         """Minimize ||F(z) - z||^2 with Adam from multiple initial points.
         task_input: (input_dim,) fixed input condition for the search."""
 ```
+
+#### `OriginalStyleFixedPointFinder`
+
+PyTorch reimplementation of the TensorFlow `fixed-point-finder` algorithm used by Golub & Sussillo (2018) and in the `multitask/flexible_multitask` reference code. Useful as a drop-in alternative to `NumericFixedPointFinder` when Adam optimization fails to spread candidates along a ring attractor.
+
+```python
+class OriginalStyleFixedPointFinder:
+    def __init__(
+        self,
+        n_candidates: int = 1000,    # Number of initial candidate states
+        n_iters: int = 5000,         # Gradient-descent iterations
+        initial_rate: float = 1.0,   # Initial adaptive learning rate
+        decrease_factor: float = 0.95,  # LR multiplier when objective increases
+        tol_q: float = 1e-9,         # Convergence threshold on q = 0.5*||F(z)-z||^2
+        noise_scale: float = 0.05,   # Noise added to trajectory-based init states
+        dedup_tol: float = 1e-2,     # Deduplication radius
+        seed: int | None = None,
+    ) -> None: ...
+
+    def find(self, model: NeuralDynamicsModel, *,
+             task_input: Tensor | None = None,
+             init_states: Tensor | np.ndarray | None = None) -> FixedPointSet:
+        """Adaptive-learning-rate gradient descent on 0.5*||F(z)-z||^2.
+        If init_states are provided, n_candidates are sampled from them and
+        Gaussian noise with std=noise_scale is added (mirroring FixedPointFinder.sample_states)."""
+```
+
+For a detailed guide on how each parameter affects fixed-point recovery (number, position, stability), see [Fixed-Point Hyperparameter Guide](fixed_point.md).
 
 #### `AnalyticPLRNNFixedPointFinder`
 

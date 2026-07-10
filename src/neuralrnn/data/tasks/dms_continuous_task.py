@@ -1,15 +1,22 @@
-"""Delayed match-to-sample task.
+"""Continuous delayed match-to-sample (DMS) task.
 
-4 inputs (test right/left, sample right/left), 2 outputs.
-Test stimulus presented first, then sample after a gap. Match = same sign.
+Also called DMS-continuous to distinguish it from the discrete-symbol DMS task
+(:mod:`dms_task`). Two sequential noisy stimuli are presented; the network must
+report whether they have the same sign. This version uses continuous coherences
+and two output channels.
 
-Ported from Langdon & Engel (2025) reference implementation.
+Task family: delayed match-to-sample / working memory.
+Inputs:  4 channels [test_r, test_l, sample_r, sample_l].
+Targets: 2 channels [match, non-match] active during decision.
+
+References:
+    Langdon & Engel (2025) reference implementation.
 """
 import numpy as np
 import torch
 
 
-def generate_input_target_stream(
+def _generate_single_trial(
     test_coh, sample_coh, baseline, alpha, sigma_in,
     n_t, test_on, test_off, sample_on, sample_off, dec_on, dec_off,
 ):
@@ -45,15 +52,25 @@ def generate_input_target_stream(
 
 
 def generate_trials(n_trials=25, alpha=0.2, sigma_in=0.01, baseline=0.2, n_coh=6, n_t=75):
-    """Create trials for the delayed match-to-sample task.
+    """Create trials for the continuous delayed match-to-sample task.
 
-    Note: Returns targets pre-sliced by a training_mask.
+    Returns full-length targets and a boolean mask, matching the standard
+    NeuralRNN cognitive-task format.
+
+    Args:
+        n_trials: Number of trials per condition combination.
+        alpha: Time constant parameter (dt/tau).
+        sigma_in: Input noise standard deviation.
+        baseline: Baseline input level.
+        n_coh: Number of coherence levels.
+        n_t: Number of time steps per trial.
 
     Returns:
         inputs: (N, n_t, 4) tensor.
-        targets: (N, len(training_mask), 2) tensor — pre-sliced targets.
-        mask: numpy index array — training_mask indices.
-        conditions: list of dicts.
+        targets: (N, n_t, 2) tensor — full-length targets.
+        mask: (N, n_t, 2) float tensor — 1 during pre-sample and decision, 0 during delay.
+        conditions: list of dicts with keys ``test_coh``, ``sample_coh``,
+            ``match``, ``correct_choice``.
     """
     cohs = np.linspace(-0.2, 0.2, n_coh)
 
@@ -69,15 +86,15 @@ def generate_trials(n_trials=25, alpha=0.2, sigma_in=0.01, baseline=0.2, n_coh=6
     conditions = []
     for test_coh in cohs:
         for sample_coh in cohs:
-            for i in range(n_trials):
+            for _ in range(n_trials):
                 match = (test_coh > 0 and sample_coh > 0) or (test_coh < 0 and sample_coh < 0)
                 conditions.append({
-                    "test_coh": test_coh,
-                    "sample_coh": sample_coh,
+                    "test_coh": float(test_coh),
+                    "sample_coh": float(sample_coh),
                     "match": match,
                     "correct_choice": 1 if match else -1,
                 })
-                inp, tgt = generate_input_target_stream(
+                inp, tgt = _generate_single_trial(
                     test_coh, sample_coh, baseline, alpha, sigma_in,
                     n_t, test_on, test_off, sample_on, sample_off, dec_on, dec_off,
                 )
@@ -89,10 +106,12 @@ def generate_trials(n_trials=25, alpha=0.2, sigma_in=0.01, baseline=0.2, n_coh=6
 
     perm = np.random.permutation(len(inputs))
     inputs = torch.tensor(inputs[perm, :, :]).float()
+    targets = torch.tensor(targets[perm, :, :]).float()
     conditions = [conditions[index] for index in perm]
 
-    # Training mask: pre-sample + decision period
-    training_mask = np.append(range(sample_on - 1), range(dec_on - 1, dec_off - 1))
-    targets = torch.tensor(targets[:, training_mask, :]).float()
+    # Mask: pre-sample + decision period (delay between sample_off and dec_on is ignored)
+    mask = torch.zeros_like(targets)
+    mask[:, :test_off, :] = 1.0
+    mask[:, dec_on - 1:dec_off, :] = 1.0
 
-    return inputs, targets, training_mask, conditions
+    return inputs, targets, mask, conditions

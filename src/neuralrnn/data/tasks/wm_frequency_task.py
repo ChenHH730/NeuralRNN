@@ -1,13 +1,16 @@
-"""Parametric Working Memory (Romo) task.
+"""Romo parametric working-memory task.
 
-Two stimuli at different frequencies (f1, f2) are presented sequentially with
-a variable delay. The network must report which frequency was higher.
+Two vibrotactile stimuli at different frequencies (f1, f2) are presented
+sequentially with a variable delay. The network must report which frequency
+was higher. This is a classic parametric working-memory / comparison task.
 
-Timing (ms): fixation=100, stim1=100, delay=500-1000, stim2=100, decision=100
-Input:  1 channel (frequency value)
-Output: 1 channel (comparison decision)
+Task family: parametric working memory / delayed comparison.
+Inputs:  1 channel (normalized frequency value).
+Targets: 1 channel (signed comparison (f1 - f2) / span).
 
-Reference:
+Timing (ms): fixation=100, stim1=100, delay=500-1000, stim2=100, decision=100.
+
+References:
     Romo et al. (1999), Nature.
     Dubreuil et al. (2022), Nature Neuroscience.
 """

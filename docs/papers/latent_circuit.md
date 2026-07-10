@@ -89,12 +89,15 @@ When applied to RNNs trained on a context-dependent decision-making task, the la
 ### Data source
 
 Cognitive tasks are procedurally generated (no download needed). Registry entries:
-- `siegel_miller`: Context-dependent decision-making (6 inputs, 2 outputs)
-- `mante`: Mante task variant
-- `mante_short`: Simplified Mante (no noise)
-- `two_afc`: Simple 2AFC (2 inputs, 2 outputs)
-- `delay_match_to_sample`: Delayed match-to-sample (4 inputs, 2 outputs)
-- `parametric_wm`: Parametric working memory (2 inputs, 2 outputs, continuous)
+- `mante`: Mante / Siegel-Miller context-dependent decision-making (6 inputs, 2 outputs)
+- `siegel_miller`: Backward-compatible alias for `mante`
+- `rdm`: Random-dot-motion perceptual decision making (1 input, 1 output)
+- `two_afc`: Backward-compatible alias for `rdm`
+- `dms_continuous`: Continuous delayed match-to-sample (4 inputs, 2 outputs)
+- `wm_angle`: Parametric working memory / circular angle (2 inputs, 2 outputs)
+- `parametric_wm`: Backward-compatible alias for `wm_angle`
+- `wm_frequency`: Parametric working memory / frequency comparison (1 input, 1 output)
+- `romo`: Backward-compatible alias for `wm_frequency`
 
 ## 4. Cross-validation with Reference Implementation
 

@@ -1,14 +1,18 @@
-"""Delayed Match-to-Sample (DMS) task.
+"""Discrete delayed match-to-sample (DMS) task.
 
 Two stimuli (A or B) are presented sequentially with a variable delay.
 The network must report whether the two stimuli match (A-A, B-B) or
-differ (A-B, B-A).
+differ (A-B, B-A). This is the discrete-symbol version used in the
+low-rank RNN literature; for a continuous-coherence variant see
+:mod:`dms_continuous_task`.
 
-Timing (ms): fixation=100, stim1=500, delay=500-3000, stim2=500, decision=1000
-Input:  2 channels (one-hot encoding of A vs B)
-Output: 1 channel (match/different)
+Task family: delayed match-to-sample / working memory.
+Inputs:  2 channels (one-hot encoding of A vs B).
+Targets: 1 channel (match=+1 / different=-1).
 
-Reference:
+Timing (ms): fixation=100, stim1=500, delay=500-3000, stim2=500, decision=1000.
+
+References:
     Dubreuil et al. (2022), Nature Neuroscience.
     Valente et al. (2022), NeurIPS.
 """

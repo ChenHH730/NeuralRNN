@@ -84,18 +84,16 @@ notebook/                  # end-to-end tutorials for each paper
 
 ## Built-in Models
 
-| Model | Paradigm | Status |
+| Model | Paradigm | Status (mostly used) |
 |---|---|---|
 | continuous time RNN | A | ✅ |
 | E-I RNN (Dale's principle) | A | ✅ |
-| Latent Circuit | AB | ✅ |
+| Latent Circuit | B | ✅ |
 | piecewise linear RNN | B | ✅ |
 | Tiny RNN | B | ✅ |
 | low-rank RNN | AB | ✅ |
-| Multi-area RNN | A | ⬜ |
-| LFADS | B | ⬜ |
-| seRNN | | |
-| dynamical motifs | | |
+| constrained RNN | A | ✅ |
+| seRNN | A | ✅ |
 
 ## Porting New Papers into the Framework
 

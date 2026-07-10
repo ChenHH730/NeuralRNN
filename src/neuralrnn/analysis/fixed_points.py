@@ -133,6 +133,143 @@ class NumericFixedPointFinder:
 
 
 # =========================================================================
+# numeric backend from (Golub & Sussillo 2018 FixedPointFinder)
+# =========================================================================
+class GolubFixedPointFinder:
+    """PyTorch reimplementation of the TensorFlow `fixed-point-finder` algorithm.
+
+    This backend is useful when the Adam-based `NumericFixedPointFinder` fails to
+    spread candidates along a ring attractor (a common problem in the multitask
+    project). It uses adaptive-learning-rate gradient descent on
+    ``q = 0.5 * ||F(z) - z||^2``, trajectory-based initialization with Gaussian
+    noise, and per-candidate learning-rate adaptation, matching the behaviour of
+    the original Golub & Sussillo (2018) package used in
+    ``reference_project/multitask/flexible_multitask``.
+
+    Key differences from `NumericFixedPointFinder`:
+      * Adaptive LR (not Adam): ``lr_0 = initial_rate``, multiplied by
+        ``decrease_factor`` whenever the objective increases.
+      * Objective includes the 0.5 factor: ``q = 0.5 * ||F(z)-z||^2``.
+      * Convergence is checked against ``tol_q`` (default ``1e-9``), not a
+        speed tolerance.
+      * If ``init_states`` are provided, the finder samples ``n_candidates``
+        states from them and adds Gaussian noise with ``noise_scale``,
+        mirroring ``FixedPointFinder.sample_states``.
+    """
+
+    def __init__(self, n_candidates: int = 1000, n_iters: int = 5000,
+                 initial_rate: float = 1.0, decrease_factor: float = 0.95,
+                 tol_q: float = 1e-9, noise_scale: float = 0.05,
+                 dedup_tol: float = 1e-2, seed: int | None = None):
+        self.n_candidates = n_candidates
+        self.n_iters = n_iters
+        self.initial_rate = initial_rate
+        self.decrease_factor = decrease_factor
+        self.tol_q = tol_q
+        self.noise_scale = noise_scale
+        self.dedup_tol = dedup_tol
+        self.seed = seed
+
+    def _prepare_init_states(self, init_states: np.ndarray | torch.Tensor | None,
+                             M: int) -> torch.Tensor:
+        """Sample n_candidates initial states and add noise, or draw random ones."""
+        rng = np.random.RandomState(self.seed)
+        if init_states is None:
+            z0 = rng.rand(self.n_candidates, M) * self.noise_scale
+            return torch.from_numpy(z0.astype(np.float32))
+
+        if isinstance(init_states, torch.Tensor):
+            init_states = init_states.cpu().numpy()
+        init_states = np.asarray(init_states)
+        if init_states.ndim == 3:
+            init_states = init_states.reshape(-1, init_states.shape[-1])
+        if len(init_states) == 0:
+            z0 = rng.rand(self.n_candidates, M) * self.noise_scale
+            return torch.from_numpy(z0.astype(np.float32))
+
+        n = min(self.n_candidates, len(init_states))
+        if self.n_candidates > len(init_states):
+            idx = rng.choice(len(init_states), size=self.n_candidates, replace=True)
+        else:
+            idx = rng.choice(len(init_states), size=self.n_candidates, replace=False)
+        z0 = init_states[idx] + rng.randn(self.n_candidates, M) * self.noise_scale
+        return torch.from_numpy(np.maximum(z0, 0.0).astype(np.float32))
+
+    def find(self, model: NeuralDynamicsModel, *,
+             task_input: torch.Tensor | None = None,
+             init_states: np.ndarray | torch.Tensor | None = None) -> FixedPointSet:
+        """Search for fixed points using the original FixedPointFinder algorithm."""
+        was_training = model.training
+        model.eval()
+        for p in model.parameters():
+            p.requires_grad_(False)
+
+        M = model.config.latent_dim
+        device = next(model.parameters()).device
+
+        z0 = self._prepare_init_states(init_states, M).to(device)
+        z = z0.detach().requires_grad_(True)
+
+        if task_input is not None:
+            xin = task_input.to(device).unsqueeze(0).expand(z.shape[0], -1)
+        else:
+            xin = None
+
+        lr = torch.full((z.shape[0],), self.initial_rate, device=device)
+
+        for _ in range(self.n_iters):
+            z.requires_grad_(True)
+            f = model.recurrence(xin, z)
+            diff = f - z
+            q = 0.5 * (diff ** 2).sum(dim=-1)
+
+            if q.max().item() < self.tol_q:
+                break
+
+            grad = torch.autograd.grad(q.sum(), z, create_graph=False)[0]
+
+            with torch.no_grad():
+                z_new = z - lr.unsqueeze(-1) * grad
+                f_new = model.recurrence(xin, z_new)
+                q_new = 0.5 * ((f_new - z_new) ** 2).sum(dim=-1)
+
+                increased = q_new > q
+                if increased.any():
+                    lr[increased] *= self.decrease_factor
+                    z_new[increased] = z[increased]
+
+                z.copy_(z_new)
+
+        with torch.no_grad():
+            f = model.recurrence(xin, z)
+            speeds = (f - z).norm(dim=-1)
+            q_final = 0.5 * ((f - z) ** 2).sum(dim=-1)
+
+        mask = q_final < self.tol_q
+        if not mask.any():
+            best = q_final.argmin()
+            mask[best] = True
+
+        cand = z[mask].detach().cpu().numpy()
+        cand_speed = speeds[mask].detach().cpu().numpy()
+
+        fps = FixedPointSet()
+        for c, sp in zip(cand, cand_speed):
+            if any(np.linalg.norm(c - p.z) < self.dedup_tol for p in fps.points):
+                continue
+            J = model.jacobian(torch.as_tensor(c, dtype=torch.float32, device=device),
+                               inputs=(xin[0:1] if xin is not None else None)).cpu().numpy()
+            eig = np.linalg.eigvals(J)
+            fps.points.append(FixedPoint(
+                z=c, speed=float(sp), eigenvalues=eig,
+                is_stable=bool(np.max(np.abs(eig)) < 1.0)))
+
+        if was_training:
+            model.train()
+        return fps
+
+
+# =========================================================================
 # Analytic backend (PLRNN: scy_fi / main, exact FP + k-cycle solver)
 # =========================================================================
 def _construct_relu_matrix(number_quadrant: int, dim: int) -> np.ndarray:

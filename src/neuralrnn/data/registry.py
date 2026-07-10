@@ -54,35 +54,40 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
         # loader="neuralrnn.models.lowrank.modeling_lowrank:load_network",
     ),
     # Langdon & Engel (2025): cognitive tasks (procedurally generated, no download needed)
-    "siegel_miller": DatasetSpec(
-        kind="cognitive_task",
-        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
-        extra={"task_name": "siegel_miller"},
-    ),
     "mante": DatasetSpec(
         kind="cognitive_task",
         loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
         extra={"task_name": "mante"},
     ),
-    "mante_short": DatasetSpec(
+    "siegel_miller": DatasetSpec(
         kind="cognitive_task",
         loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
-        extra={"task_name": "mante_short"},
+        extra={"task_name": "mante"},  # alias
     ),
-    "two_afc": DatasetSpec(
+    "dms_continuous": DatasetSpec(
         kind="cognitive_task",
         loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
-        extra={"task_name": "two_afc"},
+        extra={"task_name": "dms_continuous"},
     ),
-    "delay_match_to_sample": DatasetSpec(
+    "wm_angle": DatasetSpec(
         kind="cognitive_task",
         loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
-        extra={"task_name": "delay_match_to_sample"},
+        extra={"task_name": "wm_angle"},
     ),
     "parametric_wm": DatasetSpec(
         kind="cognitive_task",
         loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
-        extra={"task_name": "parametric_wm"},
+        extra={"task_name": "wm_angle"},  # alias
+    ),
+    "wm_frequency": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "wm_frequency"},
+    ),
+    "romo": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "wm_frequency"},  # alias
     ),
     # Low-rank RNN tasks (Dubreuil et al. 2022 / Valente et al. 2022)
     "rdm": DatasetSpec(
@@ -90,10 +95,10 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
         loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
         extra={"task_name": "rdm"},
     ),
-    "romo": DatasetSpec(
+    "two_afc": DatasetSpec(
         kind="cognitive_task",
         loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
-        extra={"task_name": "romo"},
+        extra={"task_name": "rdm"},  # alias
     ),
     "raposo": DatasetSpec(
         kind="cognitive_task",

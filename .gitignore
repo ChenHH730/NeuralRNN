@@ -11,12 +11,14 @@ notebook/test/
 notebook/test_analysis_fixes.py
 notebook/test.ipynb
 notebook/*.py
+**/__pycache__/
+notebook/**/*.py
 docs/papers/*_cn.md
 **/*connectome*
 **/*_executed.ipynb
 # C extensions
 *.so
-
+scripts/*
 # Distribution / packaging
 .Python
 build/

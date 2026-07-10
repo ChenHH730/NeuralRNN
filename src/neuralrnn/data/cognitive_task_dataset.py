@@ -17,20 +17,13 @@ from .tasks import TASK_REGISTRY
 class CognitiveTaskDataset(BaseDataset):
     """Dataset wrapping cognitive task generators.
 
-    Supports two mask formats:
-    - Boolean tensor mask: (N, T, output_dim), 1=valid, 0=ignore
-    - Index array mask (training_mask): targets are pre-sliced
+    Supports two mask formats for backward compatibility:
+    - Boolean/float tensor mask: (N, T, output_dim), 1=valid, 0=ignore
+    - Index array mask (legacy): targets are pre-sliced; the dataset pads them
+      back to full length and builds a boolean mask from the indices.
 
-    For index-array tasks, the dataset stores the full-length inputs and
-    pre-sliced targets, and generates a boolean mask from the indices.
-
-    Attributes:
-        kind: "cognitive_task"
-        inputs: (N, T, input_dim) tensor
-        targets: (N, T, output_dim) tensor (full-length, padded if needed)
-        mask: (N, T, output_dim) tensor (boolean)
-        conditions: list of dicts with trial metadata
-        task_name: name of the task
+    All current task generators return full-length targets and a tensor mask,
+    so the index-array path is retained only for legacy custom tasks.
     """
 
     kind = "cognitive_task"

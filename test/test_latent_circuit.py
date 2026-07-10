@@ -48,12 +48,17 @@ def _make_lc():
     return AutoModel.from_config(cfg)
 
 
-def _make_task_ds(task_name="siegel_miller", **kwargs):
+def _make_task_ds(task_name="mante", **kwargs):
     """Create a small cognitive task dataset."""
     from neuralrnn.data.cognitive_task_dataset import CognitiveTaskDataset
-    defaults = dict(n_trials=2, batch_size=4)
+    defaults = dict(batch_size=4)
+    # Task generators use either n_trials or num_trials for the trial count.
+    if task_name in ("mante", "dms_continuous", "wm_angle"):
+        defaults["n_trials"] = 2
+    else:
+        defaults["num_trials"] = 2
     # Only add n_coh for tasks that accept it
-    if task_name in ("siegel_miller", "mante", "delay_match_to_sample"):
+    if task_name in ("mante", "dms_continuous"):
         defaults["n_coh"] = 2
     defaults.update(kwargs)
     return CognitiveTaskDataset.from_task(task_name, **defaults)
@@ -251,7 +256,7 @@ class TestLatentCircuitObjective:
 
 class TestCognitiveTaskDataset:
     @pytest.mark.parametrize("task_name", [
-        "siegel_miller", "mante_short", "two_afc", "parametric_wm",
+        "mante", "rdm", "wm_angle",
     ])
     def test_task_shapes(self, task_name):
         ds = _make_task_ds(task_name)
@@ -276,7 +281,7 @@ class TestCognitiveTaskDataset:
 
     def test_load_dataset(self):
         from neuralrnn.data import load_dataset
-        ds = load_dataset("siegel_miller", n_trials=2, n_coh=2, batch_size=4)
+        ds = load_dataset("mante", n_trials=2, n_coh=2, batch_size=4)
         assert ds.inputs.ndim == 3
 
 

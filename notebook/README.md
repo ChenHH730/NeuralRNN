@@ -4,6 +4,7 @@ Every notebook is to implement a proposed method from previous works, with the s
 
 | Notebook | Paradigm | Reference | Key API |
 |---|---|---|---|
+| [cognitive_tasks.ipynb](cognitive_tasks.ipynb) | Gallery | Built-in tasks | Visualize all built-in cognitive tasks (inputs / targets / masks) |
 | [01_ctrnn_fixedpoints_paradigmA.ipynb](01_ctrnn_fixedpoints_paradigmA.ipynb) | Task | Song et al. (2016) | `SupervisedObjective` · `find_fixed_points` · `fit_pca` · `linearize` · `dominant_direction` · `Line attractor`|
 | [02_latent_circuit_paradigmB.ipynb](02_latent_circuit_paradigmB.ipynb) | Reconstruction | Langdon & Engel (2025) | `latent_circuit` · `LatentCircuitObjective` · `connection analysis` |
 | [03_custom_pipeline.ipynb](03_custom_pipeline.ipynb) | Task | None | `CustomDataset.from_arrays` · `SupervisedObjective`|
@@ -16,7 +17,9 @@ Every notebook is to implement a proposed method from previous works, with the s
 | [09_echo_state_network_paradigmA.ipynb](09_echo_state_network_paradigmA.ipynb) | Task / Reservoir | critical_init (Pachitariu et al., 2026) | `freeze_*` · critical recurrent init · readout-only training · `find_fixed_points` · `emax` comparison |
 | [10_constrained_RNN_paradigmA.ipynb](10_constrained_RNN_paradigmA.ipynb) | Task | seRNN; critical_init sparse/modular | `constrained_rnn` · `se_rnn` · `sparse_rnn` · `modular_rnn` · spatial regularizer · structural masks · Mante · DelayComparison line attractor |
 | [10a_constrained_RNN_paradigmB.ipynb](10a_constrained_RNN_paradigmB.ipynb) | Reconstruction | Beiran & Litwin-Kumar (2025) | `connectome_rnn` · teacher-student · recordings break degeneracy · stiff/sloppy modes · optimal neuron selection |
-| [11_STP_RNN_paradigmA.ipynb](11_STP_RNN_paradigmA.ipynb) | Task | Masse et al. (2019) | inline STP-RNN · DMS · DRMS · ABBA · activity-silent maintenance · manipulation-driven persistent activity |
+| [11_STP_RNN_paradigmA.ipynb](11_STP_RNN_paradigmA.ipynb) | Task | Masse et al. (2019) | STP-RNN · activity-silent maintenance · manipulation-driven persistent activity |
+| [12_multitask_paradigmA.ipynb](12_multitask_paradigmA.ipynb) | Task | Yang et al. (2019) | `multitask_yang` dataset · 20-task CTRNN · task variance clusters |
+| [13_flexible_multitask_paradigmA.ipynb](13_flexible_multitask_paradigmA.ipynb) | Task / Integration | Driscoll et al. (2024) | dynamic motifs |
 
 ## environment
 

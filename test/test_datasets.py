@@ -121,9 +121,35 @@ class TestDatasetRegistry:
             "delay_comparison",
             "lorenz63",
             "mante",
+            "siegel_miller",
+            "dms_continuous",
+            "wm_angle",
+            "wm_frequency",
             "bartolo_monkey",
         ]:
             assert name in DATASET_REGISTRY
+
+    def test_load_cognitive_tasks(self):
+        ds = load_dataset("mante", n_trials=2, n_coh=2, batch_size=4)
+        assert ds.inputs.shape == (16, 75, 6)
+        assert ds.targets.shape == (16, 75, 2)
+        assert ds.mask.shape == (16, 75, 2)
+
+        ds_alias = load_dataset("siegel_miller", n_trials=2, n_coh=2, batch_size=4)
+        assert ds_alias.inputs.shape == ds.inputs.shape
+
+        ds_cont = load_dataset("dms_continuous", n_trials=2, n_coh=2, batch_size=4)
+        assert ds_cont.inputs.shape[-1] == 4
+        assert ds_cont.targets.shape[-1] == 2
+        assert ds_cont.mask.shape == ds_cont.targets.shape
+
+        ds_wm = load_dataset("wm_angle", n_trials=4, batch_size=4)
+        assert ds_wm.inputs.shape[-1] == 2
+        assert ds_wm.targets.shape[-1] == 2
+
+        ds_romo = load_dataset("wm_frequency", num_trials=4, batch_size=4)
+        assert ds_romo.inputs.shape[-1] == 1
+        assert ds_romo.targets.shape[-1] == 1
 
     def test_load_dataset_raises_for_unknown_name(self):
         with pytest.raises(KeyError):

@@ -1,12 +1,17 @@
-"""Raposo task: multisensory decision-making.
+"""Raposo multisensory decision-making task.
 
 Two stimuli (visual and auditory) are presented with variable coherences.
 A context cue indicates which modality to attend to (visual, auditory, or both).
-4 input channels: [visual_stim, auditory_stim, visual_ctx, auditory_ctx].
+This is the multisensory / context-dependent decision task used in the
+low-rank RNN literature.
 
-Timing (ms): fixation=100, ctx_pre=350, stimulus=800, delay=100, decision=20
+Task family: multisensory / context-dependent perceptual decision making.
+Inputs:  4 channels [visual_stim, auditory_stim, visual_ctx, auditory_ctx].
+Targets: 1 channel (choice sign).
 
-Reference:
+Timing (ms): fixation=100, ctx_pre=350, stimulus=800, delay=100, decision=20.
+
+References:
     Raposo et al. (2014), Nature Neuroscience.
     Dubreuil et al. (2022), Nature Neuroscience.
 """

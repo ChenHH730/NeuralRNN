@@ -1,16 +1,23 @@
-"""Parametric working memory task.
+"""Parametric working memory task (circular angle).
 
-2 inputs (cos(theta), sin(theta)), 2 outputs (same angle).
-Stimulus presented briefly, then a long delay before report.
+A continuous-angle working-memory task. A brief stimulus encodes an angle on the
+unit circle; after a delay the network must reproduce the same angle.
 
-Ported from Langdon & Engel (2025) reference implementation.
+Task family: parametric working memory.
+Inputs:  2 channels [cos(theta), sin(theta)] during stimulus.
+Targets: 2 channels [cos(theta), sin(theta)] during decision.
+
+Also called the circular working-memory or angle-memory task.
+
+References:
+    Langdon & Engel (2025) reference implementation.
 """
 import numpy as np
 import torch
 
 
 def generate_trials(n_trials=100, n_t=75):
-    """Create trials for the parametric working memory task.
+    """Create trials for the parametric working-memory task.
 
     Args:
         n_trials: Total number of trials (each with a random angle).
@@ -19,8 +26,8 @@ def generate_trials(n_trials=100, n_t=75):
     Returns:
         inputs: (N, n_t, 2) tensor.
         targets: (N, n_t, 2) tensor.
-        mask: (N, n_t, 2) tensor — loss mask (0 during delay).
-        conditions: list of dicts.
+        mask: (N, n_t, 2) tensor — 1 during stimulus and decision, 0 during delay.
+        conditions: list of dicts with key ``theta``.
     """
     stim_on = int(round(n_t * 0.1))
     stim_off = int(round(n_t * 0.4))
@@ -30,9 +37,9 @@ def generate_trials(n_trials=100, n_t=75):
     inputs = []
     targets = []
     conditions = []
-    for i in range(n_trials):
+    for _ in range(n_trials):
         theta = np.round(np.random.uniform(0, 2 * np.pi), 3)
-        conditions.append({"theta": theta})
+        conditions.append({"theta": float(theta)})
 
         # Input: cos/sin during stimulus period
         input_stream = np.zeros([n_t, 2])

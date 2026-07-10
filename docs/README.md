@@ -12,6 +12,8 @@
 
 3. **[api/reference.md](api/reference.md)** —— 完整 API 参考文档。
    覆盖所有模块、类、函数的签名、参数说明与用法示例。查阅具体 API 时优先看这里。
+   数据层内置认知任务的详细档案见 [`src/neuralrnn/data/tasks/tasks.md`](../src/neuralrnn/data/tasks/tasks.md)。
+   不动点搜索各参数对结果（数量 / 位置 / 稳定性）的影响见 [`api/fixed_point.md`](api/fixed_point.md)。
 
 4. **[theory/](theory/)** —— 理论背景。
    - [dynamical_systems.md](theory/dynamical_systems.md)：把"带读出的离散动力系统"作为
@@ -26,6 +28,7 @@
    - [constrained_rnn.md](papers/constrained_rnn.md)：Constrained RNN 家族 —— seRNN、sparse RNN、modular RNN 的结构约束与空间嵌入。
    - [connectome_constrained_rnn.md](papers/connectome_constrained_rnn.md)：Connectome-Constrained RNN（Beiran & Litwin-Kumar, 2025）—— 连接组约束下的教师-学生网络与神经元记录选择。
    - [stp_rnn.md](papers/stp_rnn.md)：Short-Term Plasticity RNN（Masse et al., 2019）—— STP 介导的 activity-silent working memory 与 manipulation-driven persistent activity。
+   - [multitask.md](papers/multitask.md)：Multitask RNN（Yang et al., 2019）—— 20 个认知任务的同时训练、任务表征聚类与组合性。
 
 教程（notebook）见仓库根的 [`notebook/`](../notebook/)。
 

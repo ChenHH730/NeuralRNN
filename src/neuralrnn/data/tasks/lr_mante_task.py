@@ -1,18 +1,20 @@
-"""Mante task for low-rank RNNs (context-dependent decision-making).
+"""Mante context-dependent decision-making task — low-rank RNN format.
 
 Two stimuli (color and motion) are presented simultaneously, with a context
-cue indicating which to attend to. 4 input channels + optional noise.
+cue indicating which to attend to. This is the same cognitive paradigm as
+:mod:`mante_task`, but using the low-rank RNN convention (4 inputs, 1 scalar
+output, millisecond timing) from Dubreuil et al. (2022) / Valente et al. (2022).
 
-Timing (ms): fixation=100, ctx_pre=350, stimulus=800, delay=100, decision=20
-Input:  4 channels [color_stim, motion_stim, color_ctx, motion_ctx]
-Output: 1 channel (decision sign)
+Task family: context-dependent perceptual decision making.
+Inputs:  4 channels [color_stim, motion_stim, color_ctx, motion_ctx].
+Targets: 1 channel (decision sign: +1 or -1).
 
-This version is the one used in Dubreuil et al. (2022) and Valente et al. (2022).
-It differs from the latent circuit Mante task which uses 6 inputs and 2 outputs.
+Timing (ms): fixation=100, ctx_pre=350, stimulus=800, delay=100, decision=20.
 
-Reference:
+References:
     Mante et al. (2013), Nature.
     Dubreuil et al. (2022), Nature Neuroscience.
+    Valente et al. (2022), NeurIPS.
 """
 import numpy as np
 import torch
