@@ -20,6 +20,7 @@ from .rdm_task import generate_trials as rdm_trials
 from .raposo_task import generate_trials as raposo_trials
 from .dms_task import generate_trials as dms_trials
 from .lr_mante_task import generate_trials as lr_mante_trials
+from .go_nogo_task import generate_trials as go_nogo_trials
 from .multitask_yang_task import generate_trials as multitask_yang_trials
 from .multitask_flexible_task import generate_trials as multitask_flexible_trials
 from .multitask_flexible_dataset import MultitaskFlexibleDataset
@@ -42,6 +43,9 @@ TASK_REGISTRY = {
     # Multisensory / context-dependent decision making
     "raposo": raposo_trials,
     "lr_mante": lr_mante_trials,
+    # Go/NoGo and Memory Number (ActivationMattersRNN)
+    "go_nogo": go_nogo_trials,
+    # Multitask families
     "multitask_yang": multitask_yang_trials,
     "multitask_flexible": multitask_flexible_trials,
 }
@@ -56,6 +60,7 @@ __all__ = [
     "raposo_trials",
     "dms_trials",
     "lr_mante_trials",
+    "go_nogo_trials",
     "multitask_yang_trials",
     "multitask_flexible_trials",
     "MultitaskFlexibleDataset",
