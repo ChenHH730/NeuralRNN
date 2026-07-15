@@ -14,9 +14,11 @@ import torch
 import torch.nn.functional as F
 
 from .base import Objective
+from .registry import register_objective
 from ...modeling_utils import NeuralDynamicsModel
 
 
+@register_objective("variational")
 class VariationalObjective(Objective):
     def __init__(self, kl_weight: float = 1.0, likelihood: str = "poisson"):
         self.kl_weight = float(kl_weight)

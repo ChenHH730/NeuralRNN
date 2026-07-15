@@ -7,8 +7,10 @@ regularization while keeping the base supervised loss unchanged.
 from __future__ import annotations
 
 from .supervised import SupervisedObjective
+from .registry import register_objective
 
 
+@register_objective("constrained_supervised")
 class ConstrainedSupervisedObjective(SupervisedObjective):
     """Supervised loss + optional model constraint regularizer.
 

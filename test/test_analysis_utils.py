@@ -18,7 +18,8 @@ torch = pytest.importorskip("torch")
 
 from neuralrnn import AutoConfig, AutoModel
 from neuralrnn.analysis import linalg_utils, population_structure, manifold
-from neuralrnn.losses import loss_functions
+from neuralrnn.train.losses import loss_functions
+from neuralrnn.train.losses.metrics import accuracy_general
 from neuralrnn.analysis import perturbation, stsp_metrics
 
 
@@ -140,7 +141,7 @@ class TestLossFunctions:
         target = torch.randn(B, T, O)
         target[target == 0] = 1.0  # avoid all-zero trials
         mask = torch.ones(B, T, 1)
-        acc = loss_functions.accuracy_general(output, target, mask)
+        acc = accuracy_general(output, target, mask)
         assert isinstance(acc, torch.Tensor)
         assert 0.0 <= acc.item() <= 1.0 or np.isnan(acc.item())
 

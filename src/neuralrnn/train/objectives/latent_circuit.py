@@ -15,8 +15,10 @@ import torch
 import torch.nn as nn
 
 from .base import Objective
+from .registry import register_objective
 
 
+@register_objective("latent_circuit")
 class LatentCircuitObjective(Objective):
     """Objective for fitting latent circuit models to RNN responses.
 

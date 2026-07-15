@@ -17,8 +17,13 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from neuralrnn import AutoConfig, AutoModel, NeuralDynamicsModel, NeuralRNNConfig
-from neuralrnn import SupervisedObjective, TeacherForcingObjective
-from neuralrnn import BehavioralObjective, VariationalObjective
+from neuralrnn import (
+    SupervisedObjective, TeacherForcingObjective,
+    BehavioralObjective, VariationalObjective,
+    LatentCircuitObjective, ConstrainedSupervisedObjective,
+    RegularizedSupervisedObjective,
+    build_objective, OBJECTIVE_REGISTRY, AutoObjective,
+)
 from neuralrnn.data import BaseDataset
 from neuralrnn.modeling_utils import DynamicsModelOutput
 
@@ -107,6 +112,38 @@ class _TinyVariationalModel(NeuralDynamicsModel):
         )
 
 
+class TestBuildObjective:
+    def test_build_from_string(self):
+        obj = build_objective("supervised", task_type="classification")
+        assert isinstance(obj, SupervisedObjective)
+        assert obj.task_type == "classification"
+
+    def test_build_from_instance_passes_through(self):
+        obj = SupervisedObjective("regression")
+        assert build_objective(obj) is obj
+
+    def test_build_from_dict(self):
+        obj = build_objective({"name": "teacher_forcing", "alpha": 0.2})
+        assert isinstance(obj, TeacherForcingObjective)
+        assert obj.alpha == pytest.approx(0.2)
+
+    def test_registry_contains_all_objectives(self):
+        expected = {
+            "supervised", "regularized_supervised", "teacher_forcing",
+            "behavioral", "variational", "latent_circuit", "constrained_supervised",
+        }
+        assert expected.issubset(set(OBJECTIVE_REGISTRY))
+
+    def test_unknown_objective_raises(self):
+        with pytest.raises(ValueError, match="Unknown objective"):
+            build_objective("not_an_objective")
+
+    def test_auto_objective_from_name(self):
+        obj = AutoObjective.from_name("supervised", task_type="regression")
+        assert isinstance(obj, SupervisedObjective)
+        assert obj.task_type == "regression"
+
+
 class TestSupervisedObjective:
     def test_classification_returns_scalar_loss_and_logs(self):
         ds = _ToyTask()
@@ -135,6 +172,136 @@ class TestSupervisedObjective:
         assert isinstance(loss, torch.Tensor)
         assert loss.ndim == 0
         assert "loss" in logs
+
+
+class TestRegularizedSupervisedObjective:
+    def test_activity_regularizer(self):
+        ds = _ToyRegression()
+        cfg = AutoConfig.for_model("ctrnn", input_dim=3, latent_dim=16, output_dim=2)
+        model = AutoModel.from_config(cfg)
+
+        obj = RegularizedSupervisedObjective(
+            task_type="regression",
+            activity_weight=0.1,
+        )
+        batch = ds.sample_batch()
+        loss, logs = obj.compute_loss(model, batch)
+        assert "activity_loss" in logs
+        assert "task_loss" in logs
+        assert loss.item() > logs["task_loss"]
+
+    def test_weight_regularizer(self):
+        ds = _ToyRegression()
+        cfg = AutoConfig.for_model("ctrnn", input_dim=3, latent_dim=16, output_dim=2)
+        model = AutoModel.from_config(cfg)
+
+        obj = RegularizedSupervisedObjective(
+            task_type="regression",
+            weight_weight=0.1,
+        )
+        batch = ds.sample_batch()
+        loss, logs = obj.compute_loss(model, batch)
+        assert "weight_loss" in logs
+        assert loss.item() > logs["task_loss"]
+
+    def test_ortho_regularizer_safe_on_missing_attributes(self):
+        ds = _ToyRegression()
+        cfg = AutoConfig.for_model("ctrnn", input_dim=3, latent_dim=16, output_dim=2)
+        model = AutoModel.from_config(cfg)
+
+        obj = RegularizedSupervisedObjective(
+            task_type="regression",
+            ortho_weight=1.0,
+            ortho_input_name="missing_attr",
+            ortho_output_name="missing_attr",
+        )
+        batch = ds.sample_batch()
+        loss, logs = obj.compute_loss(model, batch)
+        assert "ortho_loss" in logs
+        assert logs["ortho_loss"] == 0.0
+        assert loss.item() == pytest.approx(logs["task_loss"])
+
+    def test_classification_path(self):
+        ds = _ToyTask()
+        cfg = AutoConfig.for_model("ctrnn", input_dim=3, latent_dim=16, output_dim=2)
+        model = AutoModel.from_config(cfg)
+
+        obj = RegularizedSupervisedObjective(
+            task_type="classification",
+            activity_weight=0.01,
+            weight_weight=0.01,
+        )
+        batch = ds.sample_batch()
+        loss, logs = obj.compute_loss(model, batch)
+        assert "acc" in logs
+        assert "activity_loss" in logs
+        assert "weight_loss" in logs
+
+    def test_global_reductions_match_notebook_objectives(self):
+        """Verify equivalence with OrthogonalityObjective / MultitaskObjective conventions.
+
+        The reference notebooks compute the task MSE and activity penalty with a
+        global (batch-level) reduction, and the weight penalty as a raw sum of
+        squares.  This test checks that RegularizedSupervisedObjective reproduces
+        those exact values.
+        """
+        ds = _ToyRegression(B=4, T=5, input_dim=3, output_dim=2)
+        cfg = AutoConfig.for_model("ctrnn", input_dim=3, latent_dim=16, output_dim=2)
+        model = AutoModel.from_config(cfg)
+
+        obj = RegularizedSupervisedObjective(
+            task_type="regression",
+            activity_weight=1e-6,
+            weight_weight=1e-6,
+            weight_reduce="sum",
+            mse_reduce="global",
+            activity_reduce="global",
+        )
+        batch = ds.sample_batch()
+        loss, logs = obj.compute_loss(model, batch)
+
+        # Hand-compute expected terms for verification.
+        out = model(batch["inputs"])
+        y, target = out.outputs, batch["targets"]
+        mask = batch.get("mask")
+        assert mask is None  # _ToyRegression does not provide a mask
+        expected_mse = ((y - target) ** 2).mean()
+        expected_activity = (out.states ** 2).mean()
+        expected_weight = sum((p ** 2).sum() for p in model.parameters() if p.requires_grad)
+
+        assert logs["task_loss"] == pytest.approx(expected_mse.item())
+        assert logs["activity_loss"] == pytest.approx(expected_activity.item())
+        assert logs["weight_loss"] == pytest.approx(expected_weight.item())
+        expected_total = (
+            expected_mse
+            + 1e-6 * expected_activity
+            + 1e-6 * expected_weight
+        )
+        assert loss.item() == pytest.approx(expected_total.item())
+
+    def test_global_mse_with_mask(self):
+        """When mse_reduce='global', the masked MSE matches (err*m).sum()/m.sum()."""
+        ds = _ToyRegression(B=3, T=4, input_dim=3, output_dim=2)
+        cfg = AutoConfig.for_model("ctrnn", input_dim=3, latent_dim=8, output_dim=2)
+        model = AutoModel.from_config(cfg)
+
+        batch = ds.sample_batch()
+        # Inject a non-trivial mask to make global vs per-trial reduction differ.
+        mask = torch.ones(batch["targets"].shape[:2])
+        mask[:, 0] = 0.0
+        batch["mask"] = mask
+
+        obj = RegularizedSupervisedObjective(
+            task_type="regression",
+            mse_reduce="global",
+        )
+        loss, logs = obj.compute_loss(model, batch)
+
+        out = model(batch["inputs"])
+        err = (out.outputs - batch["targets"]) ** 2
+        m = mask.unsqueeze(-1)
+        expected = (err * m).sum() / m.sum()
+        assert logs["task_loss"] == pytest.approx(expected.item())
 
 
 class TestTeacherForcingObjective:

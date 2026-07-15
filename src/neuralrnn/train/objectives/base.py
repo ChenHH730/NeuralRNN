@@ -18,7 +18,12 @@ from ...modeling_utils import NeuralDynamicsModel
 
 
 class Objective:
-    """Base class for all objectives. Subclasses implement compute_loss."""
+    """Base class for all objectives. Subclasses implement compute_loss.
+
+    Objectives can be registered by name using
+    ``@neuralrnn.train.objectives.register_objective("name")`` and then built
+    with ``build_objective("name", **kwargs)``.
+    """
 
     def compute_loss(self, model: NeuralDynamicsModel,
                      batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, dict[str, float]]:

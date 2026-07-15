@@ -12,12 +12,14 @@ Standard batch (ARCHITECTURE §3.1 behavior):
 from __future__ import annotations
 
 import torch
-import torch.nn.functional as F
 
 from .base import Objective
+from .registry import register_objective
+from ..losses import masked_nll
 from ...modeling_utils import NeuralDynamicsModel
 
 
+@register_objective("behavioral")
 class BehavioralObjective(Objective):
     """Negative log-likelihood of the next action. Readout outputs action logits.
 
@@ -38,15 +40,7 @@ class BehavioralObjective(Objective):
         if output_h0 and logits.shape[1] == target.shape[1] + 1:
             logits = logits[:, :-1]
 
-        B, T, C = logits.shape
-        nll = F.cross_entropy(logits.reshape(B * T, C),
-                              target.reshape(B * T), reduction="none")
-        if mask is not None:
-            m = mask.reshape(B * T).float()
-            loss = (nll * m).sum() / m.sum().clamp_min(1.0)
-        else:
-            loss = nll.mean()
-
+        loss = masked_nll(logits, target, mask)
         logs = {"loss": loss.item(), "nll": loss.item()}
 
         # Optional L1 regularization on recurrent weights (tiny_rnn).

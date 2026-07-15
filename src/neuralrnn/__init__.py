@@ -59,8 +59,14 @@ from .data import (
 # Training
 from .train import (
     Trainer, TrainingArguments,
-    Objective, SupervisedObjective, TeacherForcingObjective,
-    BehavioralObjective, VariationalObjective,
+    Objective, SupervisedObjective, RegularizedSupervisedObjective,
+    TeacherForcingObjective, BehavioralObjective, VariationalObjective,
+    LatentCircuitObjective, ConstrainedSupervisedObjective,
+    build_objective, register_objective, OBJECTIVE_REGISTRY, AutoObjective,
+    masked_mse, masked_cross_entropy, masked_nll, loss_mse,
+    activity_l2, weight_l2, weight_l1,
+    orthogonality_penalty, model_orthogonality_penalty,
+    accuracy_classification, accuracy_general,
 )
 
 # Visualization
@@ -76,6 +82,13 @@ __all__ = [
     "CognitiveTaskDataset", "LatentCircuitDataset",
     "DATASET_REGISTRY", "DatasetSpec", "load_dataset",
     "Trainer", "TrainingArguments",
-    "Objective", "SupervisedObjective", "TeacherForcingObjective",
-    "BehavioralObjective", "VariationalObjective",
+    "Objective", "SupervisedObjective", "RegularizedSupervisedObjective",
+    "TeacherForcingObjective", "BehavioralObjective", "VariationalObjective",
+    "LatentCircuitObjective", "ConstrainedSupervisedObjective",
+    "build_objective", "register_objective", "OBJECTIVE_REGISTRY", "AutoObjective",
+    "masked_mse", "masked_cross_entropy", "masked_nll", "loss_mse",
+    "activity_l2", "weight_l2", "weight_l1",
+    "orthogonality_penalty", "model_orthogonality_penalty",
+    "accuracy_classification", "accuracy_general",
 ]
+

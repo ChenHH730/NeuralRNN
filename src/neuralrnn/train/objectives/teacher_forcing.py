@@ -24,6 +24,7 @@ import torch
 import torch.nn.functional as F
 
 from .base import Objective
+from .registry import register_objective
 from ...modeling_utils import NeuralDynamicsModel
 
 
@@ -33,6 +34,7 @@ def generalized_teacher_forcing(z_pred: torch.Tensor, z_obs: torch.Tensor,
     return alpha * z_obs + (1.0 - alpha) * z_pred
 
 
+@register_objective("teacher_forcing")
 class TeacherForcingObjective(Objective):
     def __init__(self, alpha: float = 0.1, forcing_interval: int | None = None):
         """

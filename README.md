@@ -74,10 +74,11 @@ src/neuralrnn/
   auto/                    # AutoConfig / AutoModel registration & dispatch
   models/                  # model zoo: ctrnn, ei_rnn, lowrank_rnn (Paradigm A), plrnn (Paradigm B), latent_circuit, tiny_rnn
   data/                    # unified batching, datasets, open data registry + download cache
-  train/                   # generic Trainer + four Objectives + nested cross-validation
+  train/                   # generic Trainer + paradigm Objectives + reusable loss terms /
+                           #   regularizers / metrics + nested cross-validation
   analysis/                # fixed points / linearization / vector fields / dim reduction /
                            #   Lyapunov / D_stsp, D_H / manifold
-  losses/  inputs/  tools/ # reserved
+  inputs/  tools/          # reserved
 docs/                      # ARCHITECTURE.md · PORTING_GUIDE.md · theory/ · papers/
 notebook/                  # end-to-end tutorials for each paper
 ```

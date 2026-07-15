@@ -61,8 +61,14 @@ from neuralrnn import (
     DATASET_REGISTRY, DatasetSpec, load_dataset,
     # Training
     Trainer, TrainingArguments,
-    Objective, SupervisedObjective, TeacherForcingObjective,
-    BehavioralObjective, VariationalObjective,
+    Objective, SupervisedObjective, RegularizedSupervisedObjective,
+    TeacherForcingObjective, BehavioralObjective, VariationalObjective,
+    LatentCircuitObjective, ConstrainedSupervisedObjective,
+    build_objective, register_objective, OBJECTIVE_REGISTRY,
+    masked_mse, masked_cross_entropy, masked_nll, loss_mse,
+    activity_l2, weight_l2, weight_l1,
+    orthogonality_penalty, model_orthogonality_penalty,
+    accuracy_classification, accuracy_general,
 )
 ```
 
@@ -1525,6 +1531,22 @@ class Objective:
         """Optional: called by Trainer for forcing annealing."""
 ```
 
+Objectives can be registered by name and built through the factory:
+
+```python
+from neuralrnn import build_objective, OBJECTIVE_REGISTRY, register_objective
+
+obj = build_objective("supervised", task_type="classification")
+```
+
+The same factory is also exposed as ``AutoObjective.from_name`` for symmetry with ``AutoConfig`` / ``AutoModel``:
+
+```python
+from neuralrnn import AutoObjective
+
+obj = AutoObjective.from_name("teacher_forcing", alpha=0.1)
+```
+
 #### `SupervisedObjective` (Paradigm A)
 
 ```python
@@ -1534,11 +1556,37 @@ class SupervisedObjective(Objective):
         Supports optional mask in batch["mask"]."""
 ```
 
+#### `RegularizedSupervisedObjective` (Paradigm A with regularizers)
+
+```python
+class RegularizedSupervisedObjective(SupervisedObjective):
+    def __init__(
+        self,
+        task_type: str = "classification",
+        activity_weight: float = 0.0,      # coefficient for E[h^2]
+        weight_weight: float = 0.0,        # coefficient for L2 weight penalty
+        weight_patterns: list[str] | None = None,
+        weight_reduce: str = "mean",       # "mean" or "sum" over matched parameters
+        ortho_weight: float = 0.0,         # coefficient for input/output orthogonality
+        ortho_input_name: str = "input2h",
+        ortho_output_name: str = "readout_layer",
+        mse_reduce: str = "per_trial",     # "per_trial" (default) or "global"
+        activity_reduce: str = "per_trial", # "per_trial" (default) or "global"
+    )
+```
+
+Combines the supervised task loss with optional L2 activity, L2 weight, and input/output orthogonality penalties. Safe to use with models that do not expose the requested weight attributes (the orthogonality term returns 0).
+
+The `*_reduce` options let the objective match reference-notebook conventions:
+- `mse_reduce="global"` computes a single masked MSE over the whole batch (used in the latent-circuit and flexible-multitask notebooks).
+- `activity_reduce="global"` ignores the loss mask and regularizes global mean firing rate (used in the same notebooks).
+- `weight_reduce="sum"` applies the coefficient to the raw sum of squared weights (used in the flexible-multitask notebook).
+
 #### `TeacherForcingObjective` (Paradigm B — PLRNN)
 
 ```python
 class TeacherForcingObjective(Objective):
-    def __init__(self, alpha: float = 0.1):
+    def __init__(self, alpha: float = 0.1, forcing_interval: int | None = None):
         """alpha: forcing strength (1.0 = pure teacher forcing, 0.0 = free running).
         DSR typically uses small alpha (e.g. 0.1) for sparse forcing on chaotic systems.
         Supports alpha annealing via Trainer's forcing schedule."""
@@ -1572,60 +1620,88 @@ class VariationalObjective(Objective):
         Requires model.forward().extras to contain "rates" and optionally "kl"."""
 ```
 
-### Loss Functions
-
-**Module**: `neuralrnn.losses`
-
-Reusable loss functions and metrics. All accept either raw `torch.Tensor` or `DynamicsModelOutput` (which delegates arithmetic ops to `.outputs`).
-
-#### `loss_mse`
+#### `LatentCircuitObjective` (Paradigm A/B hybrid)
 
 ```python
-def loss_mse(output, target, mask) -> Tensor:
-    """Masked mean squared error loss.
-
-    Compatible with both raw tensors and DynamicsModelOutput.
-    Computes (output - target)^2 elementwise, applies the mask,
-    and normalizes per-trial.
-
-    Args:
-        output: (B, T, O) tensor or DynamicsModelOutput
-        target: (B, T, O) tensor
-        mask:   (B, T, 1) or (B, T, O) float/bool tensor
-
-    Returns:
-        scalar torch.Tensor
-    """
+class LatentCircuitObjective(Objective):
+    def __init__(self, l_y: float = 1.0):
+        """Fit low-dimensional circuit to high-dim RNN responses.
+        Loss = MSE(output) + l_y * NMSE(x @ Q, y_rnn)."""
 ```
 
-#### `accuracy_general`
+#### `ConstrainedSupervisedObjective` (Paradigm A with structural regularizer)
 
 ```python
-def accuracy_general(output, targets, mask) -> Tensor:
-    """Sign-based accuracy for binary decision tasks.
+class ConstrainedSupervisedObjective(SupervisedObjective):
+    def __init__(self, task_type: str = "classification", constraint_weight: float = 0.0):
+        """Adds constraint_weight * model.constraint_loss() to the supervised loss."""
+```
 
-    Only considers trials where targets are non-zero.
-    Decision is the sign of the masked mean output/target over
-    valid timesteps.
+### Loss Functions and Metrics
 
-    Args:
-        output:  (B, T, O) tensor or DynamicsModelOutput
-        targets: (B, T, O) tensor
-        mask:    (B, T, 1) or (B, T, O) float/bool tensor
+**Primary module**: `neuralrnn.train.losses`
 
-    Returns:
-        scalar torch.Tensor — fraction correct, or NaN if no valid trials
+Reusable loss functions, regularizers, and metrics. All loss functions accept either raw `torch.Tensor` or `DynamicsModelOutput` (which delegates arithmetic ops to `.outputs`).
+
+#### Loss terms
+
+```python
+def masked_mse(output, target, mask=None, reduction="per_trial") -> Tensor:
+    """Masked mean squared error.
+    reduction: "per_trial" (mean MSE across trials) or "global" (total SE / total mask).
     """
+
+def masked_cross_entropy(logits, targets, mask=None) -> Tensor:
+    """Masked cross-entropy for (B,T,C) logits and (B,T) targets."""
+
+def masked_nll(logits, targets, mask=None) -> Tensor:
+    """Alias for masked_cross_entropy."""
+```
+
+`loss_mse` is retained as an alias for `masked_mse`.
+
+#### Regularizers
+
+```python
+def activity_l2(states, mask=None, reduction="per_trial") -> Tensor:
+    """Mean squared activity E[h^2].
+    reduction: "per_trial" (masked mean per trial, then mean over trials)
+               or "global" (ignore mask, mean over all elements).
+    """
+
+def weight_l2(model, patterns=None, reduction="mean") -> Tensor:
+    """Squared L2 over matched parameters.
+    reduction: "mean" (mean squared value) or "sum" (raw sum of squares).
+    """
+
+def weight_l1(model, patterns=None) -> Tensor:
+    """Mean L1 over matched parameters."""
+
+def orthogonality_penalty(input_weight, output_weight, normalize_columns=True) -> Tensor:
+    """||B^T B - diag(B^T B)||_2 with B = normalize([W_in | W_out^T])."""
+
+def model_orthogonality_penalty(model, input_name="input2h", output_name="readout_layer") -> Tensor:
+    """Convenience wrapper; returns 0 if attributes are missing."""
+```
+
+#### Metrics
+
+```python
+def accuracy_classification(logits, targets, mask=None) -> Tensor:
+    """Standard argmax accuracy, optionally masked."""
+
+def accuracy_general(output, targets, mask) -> Tensor:
+    """Sign-based accuracy for binary decision tasks."""
 ```
 
 **Usage**:
 
 ```python
-from neuralrnn.losses import loss_mse, accuracy_general
+from neuralrnn.train.losses import masked_mse, activity_l2, accuracy_classification
 
-# Compatible with both raw tensors and DynamicsModelOutput
-loss = loss_mse(model_output, y_val, mask_val)
-acc = accuracy_general(model_output, y_val, mask_val)
+loss = masked_mse(model_output, y_val, mask_val)
+reg = activity_l2(states, mask_val)
+acc = accuracy_classification(model_output, targets_val, mask_val)
 ```
 
 ### Cross-Validation

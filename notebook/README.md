@@ -20,6 +20,8 @@ Every notebook is to implement a proposed method from previous works, with the s
 | [11_STP_RNN_paradigmA.ipynb](11_STP_RNN_paradigmA.ipynb) | Task | Masse et al. (2019) | STP-RNN · activity-silent maintenance · manipulation-driven persistent activity |
 | [12_multitask_paradigmA.ipynb](12_multitask_paradigmA.ipynb) | Task | Yang et al. (2019) | `multitask_yang` dataset · 20-task CTRNN · task variance clusters |
 | [13_flexible_multitask_paradigmA.ipynb](13_flexible_multitask_paradigmA.ipynb) | Task / Integration | Driscoll et al. (2024) | dynamic motifs |
+| [14_activation_paradigmA.ipynb](14_activation_paradigmA.ipynb) | Task | Tolmachev & Engel (2025) | activation function comparison, CDDM, selectivity |
+| [objectives_tutorial.ipynb](objectives_tutorial.ipynb) | Tutorial | — | `Objective` layer, built-in objectives, loss terms, custom objectives, `build_objective` |
 
 ## environment
 
