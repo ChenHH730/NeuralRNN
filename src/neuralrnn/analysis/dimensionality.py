@@ -42,6 +42,28 @@ def fit_pca(X: np.ndarray, n_components: int = 2) -> PCAResult:
                      explained_variance_ratio=(var / var.sum())[:n_components])
 
 
+def effective_dimensionality(
+    X: np.ndarray,
+    variance_threshold: float = 0.95,
+) -> int:
+    """Effective dimensionality: number of PCs needed to explain threshold fraction of variance.
+
+    Args:
+        X: (N, M) state matrix.
+        variance_threshold: Fraction of total variance to explain (default 0.95).
+
+    Returns:
+        Integer number of principal components.
+    """
+    X = np.asarray(X, dtype=np.float64)
+    Xc = X - X.mean(0)
+    _, S, _ = np.linalg.svd(Xc, full_matrices=False)
+    var = (S ** 2) / (X.shape[0] - 1)
+    cumvar = np.cumsum(var) / var.sum()
+    n = int(np.searchsorted(cumvar, variance_threshold)) + 1
+    return min(n, X.shape[1])
+
+
 @torch.no_grad()
 def collect_states(model: NeuralDynamicsModel, dataset, n_batches: int = 1) -> np.ndarray:
     """Run several batches, collect latent trajectories, and flatten them into (N_points, M) for PCA /

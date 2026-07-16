@@ -38,7 +38,13 @@ from .linearization import (
     LinearizationResult,
 )
 from .vector_field import compute_vector_field, VectorField
-from .dimensionality import fit_pca, collect_states, PCAResult
+from .dimensionality import fit_pca, collect_states, effective_dimensionality, PCAResult
+from .sequentiality import (
+    compute_sequentiality_index,
+    sort_neurons_by_peak_time,
+    weight_profile_by_peak_order,
+    split_ei_weight_submatrices,
+)
 from .lyapunov import max_lyapunov_exponent
 from .stsp_metrics import (
     state_space_divergence,
@@ -110,7 +116,13 @@ __all__ = [
     # -- dimensionality --
     "fit_pca",
     "collect_states",
+    "effective_dimensionality",
     "PCAResult",
+    # -- sequentiality --
+    "compute_sequentiality_index",
+    "sort_neurons_by_peak_time",
+    "weight_profile_by_peak_order",
+    "split_ei_weight_submatrices",
     # -- lyapunov --
     "max_lyapunov_exponent",
     # -- stsp metrics --

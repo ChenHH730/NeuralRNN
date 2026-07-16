@@ -1553,7 +1553,16 @@ obj = AutoObjective.from_name("teacher_forcing", alpha=0.1)
 class SupervisedObjective(Objective):
     def __init__(self, task_type: str = "classification"):
         """task_type: "classification" (CrossEntropy) or "regression" (MSE).
-        Supports optional mask in batch["mask"]."""
+
+        Batch shapes:
+          - inputs:  (B, T, K)
+          - targets: (B, T)     for classification, integer class indices
+          - targets: (B, T, O)  for regression, continuous values
+          - mask:    (B, T) or (B, T, O), optional
+
+        Decision tasks can use either form: integer labels with argmax accuracy,
+        or signed continuous targets (e.g. +1 / -1) with accuracy_general().
+        """
 ```
 
 #### `RegularizedSupervisedObjective` (Paradigm A with regularizers)
@@ -1927,11 +1936,55 @@ class PCAResult:
 def fit_pca(X: np.ndarray, n_components: int = 2) -> PCAResult:
     """PCA via SVD (no sklearn dependency). X: (N, M)."""
 
+def effective_dimensionality(
+    X: np.ndarray,
+    variance_threshold: float = 0.95,
+) -> int:
+    """Number of PCs needed to explain `variance_threshold` fraction of variance."""
+
 @torch.no_grad()
 def collect_states(model: NeuralDynamicsModel, dataset,
                    n_batches: int = 1) -> np.ndarray:
     """Run model on dataset batches, flatten to (N_points, M) for PCA/analysis."""
 ```
+
+### Sequentiality Analysis
+
+**Module**: `neuralrnn.analysis.sequentiality`
+
+Tools for quantifying and visualizing neural sequences in task-trained RNNs. The Sequentiality Index and peak-time sorting follow Orhan & Ma (2019); the same helpers are reused for the Zhou et al. (2023) T+WM ramp-to-sequence analysis in `notebook/15_neural_sequence_paradigmA.ipynb`. `split_ei_weight_submatrices` is provided as a general E/I submatrix utility.
+
+```python
+def compute_sequentiality_index(
+    states: np.ndarray,
+    threshold: float = 0.1,
+    window: int = 5,
+    n_bins: int = 20,
+) -> float:
+    """Orhan & Ma Sequentiality Index.
+    states: (N_trials, T, M) or (N_points, M).
+    Returns mean SI across trials."""
+
+def sort_neurons_by_peak_time(states: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return (peak_times, sort_idx) for each unit."""
+
+def weight_profile_by_peak_order(
+    weight: np.ndarray,
+    peak_times: np.ndarray,
+    max_lag: int | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Mean/sd recurrent weights as a function of peak-time order difference."""
+
+def split_ei_weight_submatrices(
+    weight: np.ndarray,
+    ei_mask: Sequence[int] | np.ndarray,
+) -> dict[str, np.ndarray]:
+    """Split recurrent weight matrix into EE/EI/IE/II submatrices."""
+```
+
+### Cue-Time Decoding
+
+Cue-time decoding is implemented **inline in the Zhou et al. (2023) section of `notebook/15_neural_sequence_paradigmA.ipynb`** rather than as a reusable public API. The notebook uses `scikit-learn` linear SVMs to decode elapsed time from delay-period population activity.
 
 ### Lyapunov Exponent
 
