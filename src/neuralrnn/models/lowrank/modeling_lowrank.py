@@ -164,12 +164,18 @@ class LowrankRNNModel(NeuralDynamicsModel):
         """
         self._define_proxy_parameters()
         N = self.config.latent_dim
+        mode = self.config.nonlinearity_mode
 
-        # Firing rate from previous state: r = tanh(z_prev + b)
-        r = self.act(z_prev + self.b)
+        # "rate": the recurrence reads the firing rate r = f(z + b) (bias inside f,
+        # matching the reference). Other modes read the state directly and keep b
+        # in the drive term.
+        if mode == "rate":
+            rec_in = self.act(z_prev + self.b)
+        else:
+            rec_in = z_prev
 
-        # Low-rank recurrent input: r @ n @ m^T
-        rec = r @ self.n @ self.m.t()
+        # Low-rank recurrent input: rec_in @ n @ m^T
+        rec = rec_in @ self.n @ self.m.t()
 
         if self.config.scale_by_hidden_size:
             rec = rec / N
@@ -178,9 +184,14 @@ class LowrankRNNModel(NeuralDynamicsModel):
         inp = x_t @ self.wi_full  # (B, N)
 
         # Euler update
-        z_t = z_prev + self.alpha * (-z_prev + rec + inp)
+        if mode == "rate":
+            z_t = z_prev + self.alpha * (-z_prev + rec + inp)
+        elif mode == "post_blend":
+            z_t = self.act((1 - self.alpha) * z_prev + self.alpha * (rec + inp + self.b))
+        else:
+            z_t = (1 - self.alpha) * z_prev + self.alpha * self.act(rec + inp + self.b)
 
-        # Add noise during training
+        # Add noise during training (always after the Euler update: family trait)
         if self.sigma_rec > 0 and self.training:
             z_t = z_t + self.sigma_rec * torch.randn_like(z_t)
 
@@ -246,6 +257,7 @@ class LowrankRNNModel(NeuralDynamicsModel):
 
         self._define_proxy_parameters()
         N = self.config.latent_dim
+        mode = self.config.nonlinearity_mode
 
         # Initialize
         if initial_state is not None:
@@ -253,8 +265,10 @@ class LowrankRNNModel(NeuralDynamicsModel):
         else:
             h = self.h0.to(device).expand(batch_size, -1).contiguous().clone()
 
-        # Initial firing rate: tanh(h0) WITHOUT bias (matching reference)
-        r = self.act(h)
+        # Initial firing rate: tanh(h0) WITHOUT bias (matching reference).
+        # Only "rate" mode tracks a rate variable; the step-0 no-bias asymmetry
+        # belongs to that mode alone.
+        r = self.act(h) if mode == "rate" else None
 
         # Noise (pre-sample for efficiency)
         noise = torch.randn(batch_size, T, N, device=device)
@@ -266,15 +280,24 @@ class LowrankRNNModel(NeuralDynamicsModel):
             trajectories.append(h)  # prepend initial state
 
         for i in range(T):
-            rec = r @ self.n @ self.m.t()
+            if mode == "rate":
+                rec = r @ self.n @ self.m.t()
+            else:
+                rec = h @ self.n @ self.m.t()
             if self.config.scale_by_hidden_size:
                 rec = rec / N
 
             inp = inputs[:, i, :] @ self.wi_full
-            h = h + self.alpha * (-h + rec + inp)
+            if mode == "rate":
+                h = h + self.alpha * (-h + rec + inp)
+            elif mode == "post_blend":
+                h = self.act((1 - self.alpha) * h + self.alpha * (rec + inp + self.b))
+            else:
+                h = (1 - self.alpha) * h + self.alpha * self.act(rec + inp + self.b)
             if self.sigma_rec > 0 and self.training:
                 h = h + self.sigma_rec * noise[:, i, :]
-            r = self.act(h + self.b)  # now with bias
+            if mode == "rate":
+                r = self.act(h + self.b)  # now with bias
 
             out = self.output_act(h) @ self.wo_full
             if self.config.scale_by_hidden_size:

@@ -16,6 +16,35 @@ from typing import Any
 
 CONFIG_FILE_NAME = "config.json"
 
+# Nonlinearity placement in the Euler step of continuous-time (leaky) RNNs.
+# With pre = W@state + B@x + b (noise added on pre):
+#   "pre_activation": z' = (1-alpha)*z + alpha*f(pre)   (standard Euler; default)
+#   "post_blend":     z' = f((1-alpha)*z + alpha*pre)   (nn-brain / Masse-style formula)
+#   "rate":           r = f(z); z' = (1-alpha)*z + alpha*(W@r + B@x + b)
+#                     (classic firing-rate form; state is a current, f maps it to the rate)
+SUPPORTED_NONLINEARITY_MODES = ("pre_activation", "post_blend", "rate")
+
+
+def validate_nonlinearity_mode(mode: str, *, model_type: str = "") -> str:
+    """Validate a ``nonlinearity_mode`` value for CTRNN-lineage configs.
+
+    Args:
+        mode: One of ``SUPPORTED_NONLINEARITY_MODES``.
+        model_type: Prefix for the error message.
+
+    Returns:
+        The validated mode (unchanged).
+
+    Raises:
+        ValueError: If ``mode`` is not one of the supported values.
+    """
+    if mode not in SUPPORTED_NONLINEARITY_MODES:
+        raise ValueError(
+            f"{model_type}: unknown nonlinearity_mode={mode!r}; "
+            f"supported: {list(SUPPORTED_NONLINEARITY_MODES)}"
+        )
+    return mode
+
 
 def resolve_euler_alpha(
     dt: float | None,

@@ -166,6 +166,52 @@ Old checkpoints without an `alpha` field re-resolve from their stored `dt`/`tau`
 compatible. Discrete-map models (`shallow_plrnn`, `dend_plrnn`, `alrnn`) and gated models
 (`tiny_rnn`) have no Euler step and do not expose `alpha`.
 
+### Nonlinearity Placement: `nonlinearity_mode`
+
+CTRNN-lineage configs select **where the nonlinearity `f` sits in the Euler step** via the
+unified `nonlinearity_mode` field (`neuralrnn.SUPPORTED_NONLINEARITY_MODES`). With
+`pre = W@state + B@x + b` (recurrent noise added on `pre`):
+
+| Mode | Update rule | Meaning |
+|---|---|---|
+| `"pre_activation"` | `z' = (1-α)z + α·f(pre)` | standard Euler: state relaxes toward `f(pre)` |
+| `"post_blend"` | `z' = f((1-α)z + α·pre)` | nn-brain / Masse-style: leak blended **inside** `f` |
+| `"rate"` | `r = f(z)`; `z' = (1-α)z + α·(W@r + B@x + b)` | classic firing-rate form: state is a current, `f` maps it to the rate that drives the recurrence |
+
+Family defaults (defaults never change existing behavior):
+
+| Family | default `nonlinearity_mode` |
+|---|---|
+| `ctrnn` / `ei_rnn` / `constrained_rnn` / `se_rnn` / `sparse_rnn` / `modular_rnn` / `latent_circuit` | `"pre_activation"` |
+| `lowrank_rnn` | `"rate"` |
+
+Key distinctions to be aware of:
+
+- **`post_blend` vs `rate`** share the same skeleton (one `f` per step, `W` always reads the
+  rate) and differ only in the **leak**: decay acts on the rate (`post_blend`) or on the
+  current (`rate`). They coincide exactly at `alpha = 1`; with `relu` they differ in
+  subthreshold memory — `rate` keeps negative currents (units can sit below threshold and
+  take time to re-activate), `post_blend` rectifies them away every step.
+- **Noise rectification**: in `pre_activation` and `post_blend` the noise on `pre` passes
+  through `f` (rectified for relu); in `rate` mode noise enters the blend unrectified.
+- **`rate` mode details (CTRNN family)**: `h2h.bias` stays in `pre` (not inside `f`), and the
+  readout still reads the state `z` (not `f(z)`). `lowrank_rnn` keeps its own family traits in
+  all modes: bias `b` inside `f` in `"rate"` mode (`r = f(z + b)`, moving into the drive in the
+  other modes), noise added **after** the Euler update, and `output_activation` on readout.
+  `latent_circuit` always scales noise as `sqrt(2α)·σ` on `pre`.
+- **Fixed points / Jacobians differ across modes** (e.g. `pre_activation` FP: `z = f(Wz+Bx+b)`;
+  `rate` FP: `z = W·f(z)+Bx+b`). All analysis modules go through `recurrence`, so they
+  automatically reflect the configured mode.
+
+Validation: unknown mode strings raise `ValueError` at config construction. The mode is stored
+on the config and serialized to `config.json`; **models always read `config.nonlinearity_mode`**.
+
+Scope: discrete-map models (`shallow_plrnn`, `dend_plrnn`, `alrnn`) and gated models
+(`tiny_rnn`) have no Euler step and do not expose this field. `connectome_rnn` is structurally
+`"rate"` (firing rates `gain·f(z + bias)` computed before the recurrent mix) but does not expose
+the field either; it will be superseded by a future `gain_rnn` module that composes `"rate"`
+mode with per-neuron gain/bias.
+
 ---
 
 ## Activation Functions
@@ -421,9 +467,13 @@ class CTRNNConfig(NeuralRNNConfig):
         ei_ratio: float = 0.8,      # Excitatory fraction (when dale=True)
         trainable_h0: bool = False, # Trainable initial state
         sigma_rec: float = 0.0,     # Recurrent noise std (0 = off)
+        noise_alpha_scaling: bool = False,  # True: noise std sqrt(2*alpha*sigma^2)
+        nonlinearity_mode: str = "pre_activation",  # pre_activation | post_blend | rate
         **kwargs,
     ) -> None: ...
 ```
+
+See *Nonlinearity Placement: `nonlinearity_mode`* (§2) for the three update rules.
 
 #### `VanillaRNNConfig`
 
@@ -459,8 +509,9 @@ class EIRNNConfig(CTRNNConfig):
 class CTRNNModel(NeuralDynamicsModel):
     config_class = CTRNNConfig
 
-    # Recurrence: h = (1-alpha)*h + alpha * f(W_x*x + W_r*r + b)
-    # where alpha = dt/tau
+    # Recurrence (default "pre_activation" mode):
+    #   h = (1-alpha)*h + alpha * f(W_x*x + W_r*h + b)
+    # "post_blend": h = f((1-alpha)*h + alpha*pre); "rate": r = f(h), h = (1-alpha)*h + alpha*(W_r*r + W_x*x + b)
     def recurrence(self, x_t, z_prev, *, inputs=None) -> Tensor: ...
     def readout(self, z_t) -> Tensor: ...
     def init_state(self, batch_size, device) -> Tensor: ...  # Uses trainable h0 if configured
@@ -658,6 +709,7 @@ class LowrankRNNConfig(NeuralRNNConfig):
                                               # softplus, leaky_relu/leakyrelu, elu, selu,
                                               # gelu, silu/swish
         output_activation: str = "tanh",      # Readout activation: same supported names
+        nonlinearity_mode: str = "rate",      # rate (native) | pre_activation | post_blend
         train_wi: bool = True,                # Selector: train wi (si frozen) or train si (wi frozen)
         train_wo: bool = True,                # Selector: train wo (so frozen) or train so (wo frozen)
         **kwargs,
@@ -674,6 +726,10 @@ class LowrankRNNConfig(NeuralRNNConfig):
 - `rank`: Determines the dimensionality of the recurrent subspace. Rank 1 = line attractor, Rank 2 = plane with rotational dynamics, Rank 3+ = more complex manifolds.
 - `scale_by_hidden_size` (default `True`): Matches both original codebases. When True, the recurrent term is divided by `N` and the output term is also divided by `N`.
 - `activation` (default `"tanh"`): The original papers use tanh for both hidden and output activation.
+- `nonlinearity_mode` (default `"rate"`): the family's native form `r = f(z + b)` with the bias
+  inside `f`; in `"pre_activation"`/`"post_blend"` the bias moves into the drive term. Noise is
+  always added after the Euler update, and the reference forward's step-0 no-bias rate
+  asymmetry exists only in `"rate"` mode. See *Nonlinearity Placement* (§2).
 
 #### `LowrankRNNModel`
 
@@ -814,6 +870,7 @@ class ConstrainedRNNConfig(CTRNNConfig):
         rec_mask: list | np.ndarray | None = None,   # (M, M) recurrent mask
         in_mask: list | np.ndarray | None = None,    # (input_dim, M) input mask
         out_mask: list | np.ndarray | None = None,   # (M, output_dim) output mask
+        nonlinearity_mode: str = "pre_activation",   # pre_activation | post_blend | rate
         **kwargs,
     ) -> None: ...
 ```
@@ -918,6 +975,10 @@ for hard-masked sparse/modular RNNs the standard `SupervisedObjective` is suffic
 **Module**: `neuralrnn.models.connectome_rnn`
 
 Firing-rate RNN for the teacher–student paradigm of Beiran & Litwin-Kumar (2025). The recurrent weight matrix can be fixed (the connectome) while per-neuron gains and biases are the trainable single-neuron parameters.
+
+Structurally this family is `"rate"`-mode (firing rates `gain·f(z + bias)` are computed from
+the state before the recurrent mix), but it does **not** expose `nonlinearity_mode`; it will be
+superseded by a future `gain_rnn` module built on the unified placement vocabulary.
 
 #### `ConnectomeRNNConfig`
 
@@ -1048,6 +1109,7 @@ class LatentCircuitConfig(NeuralRNNConfig):
                                     # softplus, leaky_relu/leakyrelu, elu, selu, gelu,
                                     # silu/swish. Connectivity masks in apply_constraints()
                                     # remain hard ReLU constraints regardless.
+        nonlinearity_mode: str = "pre_activation",  # pre_activation | post_blend | rate
         **kwargs,
     ) -> None: ...
 ```
@@ -1059,7 +1121,9 @@ class LatentCircuitConfig(NeuralRNNConfig):
 class LatentCircuitModel(NeuralDynamicsModel):
     config_class = LatentCircuitConfig
 
-    # Recurrence: x_t = (1-α) x_{t-1} + α ReLU(w_rec x_{t-1} + w_in u_t + noise)
+    # Recurrence (default "pre_activation" mode; noise always sqrt(2α)·σ on pre):
+    #   x_t = (1-α) x_{t-1} + α f(w_rec x_{t-1} + w_in u_t + noise)
+    # "post_blend": x_t = f((1-α)x + α·pre); "rate": r = f(x), x_t = (1-α)x + α·(w_rec r + w_in u)
     def recurrence(self, x_t, z_prev, *, inputs=None) -> Tensor: ...
     def readout(self, z_t) -> Tensor: ...
 

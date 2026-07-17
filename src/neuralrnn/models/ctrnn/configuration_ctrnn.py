@@ -5,7 +5,9 @@ Serves as the Contract-A copy template for "Paradigm A (task-optimized RNN)".
 """
 from __future__ import annotations
 
-from ...configuration_utils import NeuralRNNConfig, resolve_euler_alpha
+from ...configuration_utils import (
+    NeuralRNNConfig, resolve_euler_alpha, validate_nonlinearity_mode,
+)
 
 
 class CTRNNConfig(NeuralRNNConfig):
@@ -30,8 +32,15 @@ class CTRNNConfig(NeuralRNNConfig):
             named_parameters at all, stronger than freezing); True -> h0 is an
             nn.Parameter, which can still be frozen via freeze_h0=True.
         sigma_rec:  Standard deviation of recurrent noise (0 disables)
-        relu_after_blend: True = f((1-α)z + α·pre) (original nn-brain formula);
-                          False = (1-α)z + α·f(pre) (standard Euler discretization, default)
+        nonlinearity_mode: Where the nonlinearity f sits in the Euler step
+            (pre = W@state + B@x + b, noise added on pre):
+            "pre_activation" (default): z' = (1-α)z + α·f(pre);
+            "post_blend":               z' = f((1-α)z + α·pre) (nn-brain formula);
+            "rate":                     r = f(z); z' = (1-α)z + α·(W@r + B@x + b)
+                                        (classic firing-rate form; noise on pre stays
+                                        inside the blend and is not rectified; readout
+                                        stays from z).
+            See ``neuralrnn.configuration_utils.SUPPORTED_NONLINEARITY_MODES``.
     """
 
     model_type = "ctrnn"
@@ -49,11 +58,12 @@ class CTRNNConfig(NeuralRNNConfig):
         ei_ratio: float = 0.8,
         trainable_h0: bool = False,
         sigma_rec: float = 0.0,
-        relu_after_blend: bool = False,
         noise_alpha_scaling: bool = False,
+        nonlinearity_mode: str = "pre_activation",
         **kwargs,
     ) -> None:
         alpha, dt = resolve_euler_alpha(dt, tau, alpha, default_dt=100.0, model_type=self.model_type)
+        validate_nonlinearity_mode(nonlinearity_mode, model_type=self.model_type)
         super().__init__(input_dim=input_dim, latent_dim=latent_dim,
                          output_dim=output_dim, dt=dt, activation=activation, **kwargs)
         self.alpha = alpha
@@ -62,8 +72,8 @@ class CTRNNConfig(NeuralRNNConfig):
         self.ei_ratio = ei_ratio
         self.trainable_h0 = trainable_h0
         self.sigma_rec = sigma_rec
-        self.relu_after_blend = relu_after_blend
         self.noise_alpha_scaling = noise_alpha_scaling
+        self.nonlinearity_mode = nonlinearity_mode
 
 
 class VanillaRNNConfig(CTRNNConfig):

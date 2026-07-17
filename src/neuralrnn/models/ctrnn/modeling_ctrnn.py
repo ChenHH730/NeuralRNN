@@ -72,7 +72,10 @@ class CTRNNModel(NeuralDynamicsModel):
     # ---------------- hard contract ----------------
     def recurrence(self, x_t, z_prev, *, inputs=None):
         W = self._recurrent_weight()
-        pre = self.input2h(x_t) + torch.nn.functional.linear(z_prev, W, self.h2h.bias)
+        mode = self.config.nonlinearity_mode
+        # "rate": the recurrent matrix reads the firing rate r = f(z); otherwise it reads z.
+        rec_in = self.act(z_prev) if mode == "rate" else z_prev
+        pre = self.input2h(x_t) + torch.nn.functional.linear(rec_in, W, self.h2h.bias)
         if self.config.sigma_rec > 0 and self.training:
             if self.config.noise_alpha_scaling:
                 # Reference formula: sqrt(2 * alpha * sigma^2) * N(0,1)
@@ -81,9 +84,12 @@ class CTRNNModel(NeuralDynamicsModel):
                 # Default: sigma * N(0,1)
                 noise_std = self.config.sigma_rec
             pre = pre + noise_std * torch.randn_like(pre)
-        if self.config.relu_after_blend:
+        if mode == "post_blend":
             # nn-brain original formula: f((1-α)z + α·pre)
             z = self.act((1 - self.alpha) * z_prev + self.alpha * pre)
+        elif mode == "rate":
+            # Classic firing-rate form: z' = (1-α)z + α·(W@r + B@x + b); no f on the update
+            z = (1 - self.alpha) * z_prev + self.alpha * pre
         else:
             # Standard Euler discretization: (1-α)z + α·f(pre)
             z = (1 - self.alpha) * z_prev + self.alpha * self.act(pre)

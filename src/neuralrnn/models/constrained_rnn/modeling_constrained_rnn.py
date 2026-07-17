@@ -118,8 +118,11 @@ class ConstrainedRNNModel(CTRNNModel):
         in_weight = self.input2h.weight
         if self.in_mask is not None:
             in_weight = in_weight * self.in_mask.t()
+        mode = self.config.nonlinearity_mode
+        # "rate": the recurrent matrix reads the firing rate r = f(z); otherwise it reads z.
+        rec_in = self.act(z_prev) if mode == "rate" else z_prev
         pre = F.linear(x_t, in_weight, self.input2h.bias) + F.linear(
-            z_prev, W, self.h2h.bias
+            rec_in, W, self.h2h.bias
         )
         if self.config.sigma_rec > 0 and self.training:
             if getattr(self.config, "noise_alpha_scaling", False):
@@ -127,8 +130,10 @@ class ConstrainedRNNModel(CTRNNModel):
             else:
                 noise_std = self.config.sigma_rec
             pre = pre + noise_std * torch.randn_like(pre)
-        if self.config.relu_after_blend:
+        if mode == "post_blend":
             z = self.act((1 - self.alpha) * z_prev + self.alpha * pre)
+        elif mode == "rate":
+            z = (1 - self.alpha) * z_prev + self.alpha * pre
         else:
             z = (1 - self.alpha) * z_prev + self.alpha * self.act(pre)
         return z

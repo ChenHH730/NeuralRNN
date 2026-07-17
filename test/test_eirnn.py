@@ -230,7 +230,7 @@ class TestReferenceComparison:
         - Net: EIRNN + readout from E units only
         """
         cfg = AutoConfig.for_model("ei_rnn", input_dim=3, latent_dim=50, output_dim=2,
-                                   dt=20, sigma_rec=0.15, relu_after_blend=True)
+                                   dt=20, sigma_rec=0.15, nonlinearity_mode="post_blend")
         model = AutoModel.from_config(cfg)
 
         # Check architecture components

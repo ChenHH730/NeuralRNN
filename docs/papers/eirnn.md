@@ -267,7 +267,7 @@ from neuralrnn import AutoConfig, AutoModel
 
 cfg = AutoConfig.for_model('ei_rnn',
                            input_dim=3, latent_dim=50, output_dim=3,
-                           dt=20, sigma_rec=0.15, relu_after_blend=True)
+                           dt=20, sigma_rec=0.15, nonlinearity_mode="post_blend")
 model = AutoModel.from_config(cfg)
 # model.e_size = 40, model.i_size = 10
 # model._recurrent_weight() → effective weights under Dale constraint

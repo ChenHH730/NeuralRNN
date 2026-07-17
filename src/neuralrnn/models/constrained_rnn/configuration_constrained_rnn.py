@@ -41,6 +41,7 @@ class ConstrainedRNNConfig(CTRNNConfig):
         rec_mask: Optional (M, M) mask applied to recurrent weights h2h.weight.
         in_mask:  Optional (input_dim, M) mask applied to input2h.weight.
         out_mask: Optional (M, output_dim) mask applied to readout_layer.weight.
+        nonlinearity_mode: See CTRNNConfig ("pre_activation" default, "post_blend", "rate").
         All CTRNNConfig arguments are inherited.
     """
 
@@ -59,11 +60,11 @@ class ConstrainedRNNConfig(CTRNNConfig):
         ei_ratio: float = 0.8,
         trainable_h0: bool = False,
         sigma_rec: float = 0.0,
-        relu_after_blend: bool = False,
         noise_alpha_scaling: bool = False,
         rec_mask: list | Any | None = None,
         in_mask: list | Any | None = None,
         out_mask: list | Any | None = None,
+        nonlinearity_mode: str = "pre_activation",
         **kwargs,
     ) -> None:
         super().__init__(
@@ -78,8 +79,8 @@ class ConstrainedRNNConfig(CTRNNConfig):
             ei_ratio=ei_ratio,
             trainable_h0=trainable_h0,
             sigma_rec=sigma_rec,
-            relu_after_blend=relu_after_blend,
             noise_alpha_scaling=noise_alpha_scaling,
+            nonlinearity_mode=nonlinearity_mode,
             **kwargs,
         )
         self.rec_mask = rec_mask

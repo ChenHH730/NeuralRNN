@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import warnings
 
-from ...configuration_utils import NeuralRNNConfig, resolve_euler_alpha
+from ...configuration_utils import (
+    NeuralRNNConfig, resolve_euler_alpha, validate_nonlinearity_mode,
+)
 
 
 class LowrankRNNConfig(NeuralRNNConfig):
@@ -56,6 +58,14 @@ class LowrankRNNConfig(NeuralRNNConfig):
             (default "tanh").
         output_activation: Activation for readout. Same supported names as
             ``activation`` (default "tanh").
+        nonlinearity_mode: Where the nonlinearity f sits in the Euler step
+            (default "rate", the family's native form r = f(z + b)):
+            "rate":          r = f(z + b); z' = (1-α)z + α·(rec(r) + inp);
+            "pre_activation": z' = (1-α)z + α·f(rec(z) + inp + b);
+            "post_blend":     z' = f((1-α)z + α·(rec(z) + inp + b)).
+            In "rate" mode the bias b stays inside f (matching the reference);
+            in the other modes b moves into the drive term. Recurrent noise is
+            always added after the Euler update (family trait, all modes).
         train_wi: Whether to train input weights wi (True, with si frozen) or
             the scaling si (False, with wi frozen). Selector, not a freeze flag:
             use ``freeze_input=True`` to freeze both (default True).
@@ -87,6 +97,7 @@ class LowrankRNNConfig(NeuralRNNConfig):
         scale_by_hidden_size: bool = True,
         activation: str = "tanh",
         output_activation: str = "tanh",
+        nonlinearity_mode: str = "rate",
         train_wi: bool = True,
         train_wo: bool = True,
         **kwargs,
@@ -126,6 +137,7 @@ class LowrankRNNConfig(NeuralRNNConfig):
             # train_h0=False). Explicit freeze_h0=False opts into training.
             kwargs.setdefault("freeze_h0", True)
         alpha, dt = resolve_euler_alpha(dt, tau, alpha, default_dt=20.0, model_type=self.model_type)
+        validate_nonlinearity_mode(nonlinearity_mode, model_type=self.model_type)
         super().__init__(
             input_dim=input_dim,
             latent_dim=latent_dim,
@@ -141,5 +153,6 @@ class LowrankRNNConfig(NeuralRNNConfig):
         self.add_bias = add_bias
         self.scale_by_hidden_size = scale_by_hidden_size
         self.output_activation = output_activation
+        self.nonlinearity_mode = nonlinearity_mode
         self.train_wi = train_wi
         self.train_wo = train_wo
