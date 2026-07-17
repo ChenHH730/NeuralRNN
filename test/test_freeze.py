@@ -135,22 +135,17 @@ class TestCTRNNFreeze:
 # ============================ LowrankRNN ============================
 class TestLowrankRNNFreeze:
 
-    def _make(self, train_wi=None, train_wo=None, train_wrec=None, train_h0=None,
-              **freeze):
+    def _make(self, train_wi=None, train_wo=None, **freeze):
         kw = dict(input_dim=3, latent_dim=16, output_dim=2, rank=2)
         if train_wi is not None:
             kw["train_wi"] = train_wi
         if train_wo is not None:
             kw["train_wo"] = train_wo
-        if train_wrec is not None:
-            kw["train_wrec"] = train_wrec
-        if train_h0 is not None:
-            kw["train_h0"] = train_h0
         cfg = AutoConfig.for_model("lowrank_rnn", **kw, **freeze)
         return AutoModel.from_config(cfg)
 
     def test_freeze_flags_override_train_flags(self):
-        # Even though train_wi/train_wrec/train_wo/train_h0 are True,
+        # Even though train_wi/train_wo are True (and freeze_h0 defaulted),
         # freeze_* flags should keep the parameters frozen.
         model = self._make(
             freeze_input=True, freeze_recurrent=True,
@@ -178,10 +173,11 @@ class TestLowrankRNNFreeze:
 
     def test_train_flags_work_without_freeze(self):
         model = self._make(
-            train_wi=False, train_wo=False, train_wrec=False, train_h0=False
+            train_wi=False, train_wo=False, freeze_recurrent=True
         )
         grads = _param_requires_grad(model)
         # Main weights frozen; scaling factors remain trainable by design.
+        # (h0 is frozen by default: LowrankRNNConfig sets freeze_h0=True.)
         assert not grads["wi"]
         assert not grads["wo"]
         assert not grads["m"]
@@ -191,7 +187,7 @@ class TestLowrankRNNFreeze:
         assert grads["so"]
 
     def test_train_wi_true_unfrozen_without_freeze(self):
-        model = self._make(train_wi=True, train_wo=False, train_wrec=False)
+        model = self._make(train_wi=True, train_wo=False, freeze_recurrent=True)
         grads = _param_requires_grad(model)
         # wi trainable, si frozen by design when train_wi=True.
         assert grads["wi"]
@@ -199,6 +195,34 @@ class TestLowrankRNNFreeze:
         # Recurrent frozen.
         assert not grads["m"]
         assert not grads["n"]
+
+    def test_h0_frozen_by_default_unless_opted_in(self):
+        # Family default freeze_h0=True (original code never trained h0).
+        model = self._make()
+        assert not _param_requires_grad(model)["h0"]
+        model = self._make(freeze_h0=False)
+        assert _param_requires_grad(model)["h0"]
+
+    def test_deprecated_train_flags_map_to_freeze(self):
+        # Old-style flags still work via deprecation shim.
+        with pytest.warns(DeprecationWarning, match="freeze_recurrent"):
+            cfg = AutoConfig.for_model(
+                "lowrank_rnn", input_dim=3, latent_dim=16, output_dim=2,
+                rank=2, train_wrec=False
+            )
+        assert cfg.freeze_recurrent is True
+        model = AutoModel.from_config(cfg)
+        grads = _param_requires_grad(model)
+        assert not grads["m"] and not grads["n"]
+
+        with pytest.warns(DeprecationWarning, match="freeze_h0"):
+            cfg = AutoConfig.for_model(
+                "lowrank_rnn", input_dim=3, latent_dim=16, output_dim=2,
+                rank=2, train_h0=True
+            )
+        assert cfg.freeze_h0 is False  # train_h0=True -> explicitly trainable
+        model = AutoModel.from_config(cfg)
+        assert _param_requires_grad(model)["h0"]
 
 
 # ============================ TinyRNN ============================

@@ -6,7 +6,7 @@ responses, simultaneously inferring connectivity and an embedding matrix.
 """
 from __future__ import annotations
 
-from ...configuration_utils import NeuralRNNConfig
+from ...configuration_utils import NeuralRNNConfig, resolve_euler_alpha
 
 
 class LatentCircuitConfig(NeuralRNNConfig):
@@ -26,8 +26,12 @@ class LatentCircuitConfig(NeuralRNNConfig):
         latent_dim:     Number of latent nodes n (default 8).
         output_dim:     Task output dimension (e.g. 2 for binary choice).
         embedding_dim:  Dimension N of the high-dimensional RNN space.
-        dt:             Discretization time step in ms (default 40).
-        tau:            Time constant in ms (default 200). alpha = dt/tau = 0.2.
+        dt:             Discretization time step in ms (default None -> 40 ms,
+                        giving alpha = dt/tau = 0.2).
+        tau:            Time constant in ms (default 200).
+        alpha:          Euler update fraction per step. When given explicitly it
+                        takes precedence over dt/tau (priority: alpha > dt/tau);
+                        see ``neuralrnn.configuration_utils.resolve_euler_alpha``.
         sigma_rec:      Recurrent noise standard deviation (default 0.15).
         activation:     Nonlinearity name for the recurrence. Supported: relu,
             tanh, sigmoid, softplus, leaky_relu/leakyrelu, elu, selu, gelu,
@@ -44,12 +48,14 @@ class LatentCircuitConfig(NeuralRNNConfig):
         latent_dim: int = 8,
         output_dim: int = 2,
         embedding_dim: int = 50,
-        dt: float = 40.0,
+        dt: float | None = None,
         tau: float = 200.0,
+        alpha: float | None = None,
         sigma_rec: float = 0.15,
         activation: str = "relu",
         **kwargs,
     ) -> None:
+        alpha, dt = resolve_euler_alpha(dt, tau, alpha, default_dt=40.0, model_type=self.model_type)
         super().__init__(
             input_dim=input_dim,
             latent_dim=latent_dim,
@@ -58,6 +64,7 @@ class LatentCircuitConfig(NeuralRNNConfig):
             activation=activation,
             **kwargs,
         )
+        self.alpha = alpha
         self.embedding_dim = embedding_dim
         self.tau = tau
         self.sigma_rec = sigma_rec

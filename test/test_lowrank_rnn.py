@@ -29,7 +29,7 @@ class TestLowrankRNNConstruction:
     def test_autoconfig_automodel(self):
         cfg = AutoConfig.for_model(
             "lowrank_rnn", input_dim=3, latent_dim=16, output_dim=2, rank=2,
-            noise_std=0.0
+            sigma_rec=0.0
         )
         model = AutoModel.from_config(cfg)
         assert isinstance(model, NeuralDynamicsModel)
@@ -43,7 +43,7 @@ class TestLowrankRNNForward:
     def _make(self):
         cfg = AutoConfig.for_model(
             "lowrank_rnn", input_dim=3, latent_dim=16, output_dim=2, rank=2,
-            noise_std=0.0
+            sigma_rec=0.0
         )
         return AutoModel.from_config(cfg)
 
@@ -74,7 +74,7 @@ class TestLowrankRNNUtilities:
     def test_svd_reparametrization_runs(self):
         cfg = AutoConfig.for_model(
             "lowrank_rnn", input_dim=3, latent_dim=16, output_dim=2, rank=2,
-            noise_std=0.0
+            sigma_rec=0.0
         )
         model = AutoModel.from_config(cfg)
         model.svd_reparametrization()
@@ -88,7 +88,7 @@ class TestLowrankRNNTraining:
         ds = _ToyRegression(input_dim=3, output_dim=2)
         cfg = AutoConfig.for_model(
             "lowrank_rnn", input_dim=3, latent_dim=16, output_dim=2, rank=2,
-            noise_std=0.0
+            sigma_rec=0.0
         )
         model = AutoModel.from_config(cfg)
         hist = Trainer(model, ds, SupervisedObjective("regression"),
@@ -102,7 +102,7 @@ class TestLowrankRNNSaveLoad:
     def test_save_load_roundtrip(self, tmp_path):
         cfg = AutoConfig.for_model(
             "lowrank_rnn", input_dim=3, latent_dim=16, output_dim=2, rank=2,
-            noise_std=0.0
+            sigma_rec=0.0
         )
         model = AutoModel.from_config(cfg)
         model.eval()
@@ -123,7 +123,7 @@ class TestLowrankRNNFreezeSanity:
     def test_freeze_flags_override_train_flags(self):
         cfg = AutoConfig.for_model(
             "lowrank_rnn", input_dim=3, latent_dim=16, output_dim=2, rank=2,
-            train_wi=True, train_wo=True, train_wrec=True, train_h0=True,
+            train_wi=True, train_wo=True,
             freeze_input=True, freeze_recurrent=True
         )
         model = AutoModel.from_config(cfg)

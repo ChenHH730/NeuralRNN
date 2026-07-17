@@ -45,7 +45,7 @@ class LowrankRNNModel(NeuralDynamicsModel):
         N = config.latent_dim
         R = config.rank
         self.alpha = config.alpha
-        self.noise_std = config.noise_std
+        self.sigma_rec = config.sigma_rec
         self.act = get_activation(config.activation)
         self.output_act = get_activation(config.output_activation)
 
@@ -57,16 +57,12 @@ class LowrankRNNModel(NeuralDynamicsModel):
         self.scale_by_hidden_size = config.scale_by_hidden_size
         self.train_wi = config.train_wi
         self.train_wo = config.train_wo
-        self.train_wrec = config.train_wrec
-        self.train_h0 = config.train_h0
         self.non_linearity = self.act   # for compat with reference helpers
 
         # ---- Low-rank recurrent factors: m (N×R), n (N×R) ----
+        # (frozen iff config.freeze_recurrent, applied by apply_freeze_config below)
         self.m = nn.Parameter(torch.Tensor(N, R))
         self.n = nn.Parameter(torch.Tensor(N, R))
-        if not config.train_wrec:
-            self.m.requires_grad = False
-            self.n.requires_grad = False
 
         # ---- Input weights: wi (input_dim, N), si (input_dim) channel scaling ----
         self.wi = nn.Parameter(torch.Tensor(config.input_dim, N))
@@ -90,9 +86,9 @@ class LowrankRNNModel(NeuralDynamicsModel):
             self.b.requires_grad = False
 
         # ---- Initial state h0 ----
+        # (frozen by default: LowrankRNNConfig sets freeze_h0=True;
+        #  applied by apply_freeze_config below)
         self.h0 = nn.Parameter(torch.Tensor(N))
-        if not config.train_h0:
-            self.h0.requires_grad = False
 
         # ---- Proxy parameters (computed from base params) ----
         self.wi_full: torch.Tensor | None = None
@@ -115,7 +111,7 @@ class LowrankRNNModel(NeuralDynamicsModel):
         lines = [
             f"input_dim={self.config.input_dim}, latent_dim={self.config.latent_dim}, "
             f"output_dim={self.config.output_dim}, rank={self.config.rank}, "
-            f"alpha={self.alpha}, noise_std={self.noise_std}",
+            f"alpha={self.alpha}, sigma_rec={self.sigma_rec}",
             f"  (m): Parameter ({self.config.latent_dim}, {self.config.rank})",
             f"  (n): Parameter ({self.config.latent_dim}, {self.config.rank})",
             f"  (wi): Parameter ({self.config.input_dim}, {self.config.latent_dim})",
@@ -185,8 +181,8 @@ class LowrankRNNModel(NeuralDynamicsModel):
         z_t = z_prev + self.alpha * (-z_prev + rec + inp)
 
         # Add noise during training
-        if self.noise_std > 0 and self.training:
-            z_t = z_t + self.noise_std * torch.randn_like(z_t)
+        if self.sigma_rec > 0 and self.training:
+            z_t = z_t + self.sigma_rec * torch.randn_like(z_t)
 
         return z_t
 
@@ -276,8 +272,8 @@ class LowrankRNNModel(NeuralDynamicsModel):
 
             inp = inputs[:, i, :] @ self.wi_full
             h = h + self.alpha * (-h + rec + inp)
-            if self.noise_std > 0 and self.training:
-                h = h + self.noise_std * noise[:, i, :]
+            if self.sigma_rec > 0 and self.training:
+                h = h + self.sigma_rec * noise[:, i, :]
             r = self.act(h + self.b)  # now with bias
 
             out = self.output_act(h) @ self.wo_full

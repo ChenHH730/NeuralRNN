@@ -95,6 +95,7 @@ notebook/                  # end-to-end tutorials for each paper
 | low-rank RNN | AB | ✅ |
 | constrained RNN | A | ✅ |
 | seRNN | A | ✅ |
+| connectome-constrained RNN | B | ✅ |
 
 ## Porting New Papers into the Framework
 

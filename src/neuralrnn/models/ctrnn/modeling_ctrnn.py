@@ -28,7 +28,7 @@ class CTRNNModel(NeuralDynamicsModel):
     def __init__(self, config: CTRNNConfig) -> None:
         super().__init__(config)
         M = config.latent_dim
-        self.alpha = 1.0 if config.dt is None else config.dt / config.tau
+        self.alpha = config.alpha
         self.act = get_activation(config.activation)
 
         self.input2h = nn.Linear(config.input_dim, M)

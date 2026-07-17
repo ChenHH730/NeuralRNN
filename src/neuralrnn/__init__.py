@@ -36,7 +36,7 @@ from __future__ import annotations
 __version__ = "0.2.7.dev0"
 
 # Core base classes / output container
-from .configuration_utils import NeuralRNNConfig
+from .configuration_utils import NeuralRNNConfig, resolve_euler_alpha
 from .modeling_utils import NeuralDynamicsModel, DynamicsModelOutput
 
 # Unified activation factory
@@ -75,6 +75,7 @@ from . import visualization
 __all__ = [
     "__version__",
     "NeuralRNNConfig", "NeuralDynamicsModel", "DynamicsModelOutput",
+    "resolve_euler_alpha",
     "get_activation", "SUPPORTED_ACTIVATIONS",
     "AutoConfig", "AutoModel", "register_config", "register_model",
     "CONFIG_REGISTRY", "MODEL_REGISTRY",

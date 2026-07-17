@@ -11,10 +11,75 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field, asdict, fields
+import warnings
 from typing import Any
 
 CONFIG_FILE_NAME = "config.json"
+
+
+def resolve_euler_alpha(
+    dt: float | None,
+    tau: float,
+    alpha: float | None,
+    *,
+    default_dt: float | None = None,
+    model_type: str = "",
+) -> tuple[float, float | None]:
+    """Unified Euler-step resolution for continuous-time configs.
+
+    Every continuous-time model family exposes the same three knobs —
+    ``alpha`` (update fraction per step), ``dt`` (physical time step) and
+    ``tau`` (time constant) — resolved with a single deterministic priority:
+
+    1. ``alpha`` explicitly given            -> use it directly (highest priority).
+       If ``dt`` is also given and ``alpha != dt/tau``, a warning is emitted
+       and ``alpha`` wins.
+    2. ``alpha=None`` and ``dt`` given       -> ``alpha = dt / tau``.
+    3. both None                             -> family default: ``dt = default_dt``
+       and ``alpha = default_dt / tau``; with ``default_dt=None`` the model is
+       fully discrete, ``alpha = 1.0``.
+
+    Args:
+        dt: Physical time step, or None.
+        tau: Time constant (must be > 0).
+        alpha: Explicit Euler update fraction, or None.
+        default_dt: Family-specific fallback for ``dt`` when neither ``dt`` nor
+            ``alpha`` is given; None means the family default is the discrete
+            update (alpha = 1.0).
+        model_type: Prefix for warning messages.
+
+    Returns:
+        (alpha, effective_dt): the resolved update fraction and the effective
+        ``dt`` to store on the config (None when the model runs discrete).
+
+    Raises:
+        ValueError: If ``tau <= 0`` or the resolved/explicit ``alpha <= 0``.
+    """
+    if tau is None or tau <= 0:
+        raise ValueError(f"{model_type}: tau must be a positive number, got {tau}")
+
+    if alpha is not None and dt is not None:
+        if abs(alpha - dt / tau) > 1e-6:
+            warnings.warn(
+                f"{model_type}: both alpha={alpha} and dt/tau={dt / tau:.6g} were given "
+                f"and differ; alpha takes precedence (priority: alpha > dt/tau).",
+                UserWarning,
+                stacklevel=3,
+            )
+    elif alpha is None:
+        if dt is None:
+            dt = default_dt
+        alpha = (dt / tau) if dt is not None else 1.0
+
+    if alpha <= 0:
+        raise ValueError(f"{model_type}: alpha must be > 0, got {alpha}")
+    if alpha > 1:
+        warnings.warn(
+            f"{model_type}: alpha={alpha} > 1; explicit Euler integration may be unstable.",
+            UserWarning,
+            stacklevel=3,
+        )
+    return float(alpha), dt
 
 
 class NeuralRNNConfig:

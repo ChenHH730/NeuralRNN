@@ -103,6 +103,15 @@ class NeuralRNNConfig:
 
 The four `freeze_*` flags provide a convenient way to implement echo-state / reservoir-computing training. They are automatically serialized with the config and respected by all built-in models.
 
+**Freezing has two layers.** Layer 1 is the unified vocabulary: the four `freeze_*` flags plus
+`model.freeze_parameters(groups=...)/unfreeze_parameters(...)` (per-model `_freeze_groups` map
+`input`/`recurrent`/`output`/`h0` — and for connectome_rnn also `gains`/`biases` — to parameter
+regexes). Layer 2 is family-specific flags that only exist where Layer 1 cannot express the
+semantics — e.g. CTRNN-family `trainable_h0` (structural: `False` makes h0 a buffer, not a
+parameter at all) and low-rank `train_wi`/`train_wo` (selectors choosing between the weight and
+its per-channel scaling, not freeze flags). Rule: **`freeze_*` always wins** — models apply
+family flags first and `apply_freeze_config()` last.
+
 **Serialization Methods**:
 
 | Method | Description |
@@ -128,6 +137,34 @@ cfg2 = NeuralRNNConfig.from_pretrained("my_config/")
 ```
 
 > **Porting note**: Every model family must define a `<Family>Config(NeuralRNNConfig)` subclass with a unique `model_type`. All constructor hyperparameters from the original paper code must be stored as config fields — never hardcoded in the model `__init__`.
+
+### Euler Discretization: `alpha` / `dt` / `tau`
+
+All continuous-time model configs expose the same three knobs for the Euler update
+`z_t = (1 - alpha) * z_{t-1} + alpha * f(pre)`, resolved by
+`neuralrnn.resolve_euler_alpha(dt, tau, alpha, *, default_dt, model_type)` with a single
+deterministic priority:
+
+1. **`alpha` given explicitly** → used directly (highest priority). If `dt` is also given and
+   `alpha != dt/tau`, a `UserWarning` is emitted and `alpha` wins.
+2. **`alpha=None`, `dt` given** → `alpha = dt / tau`.
+3. **both None** → family default: `dt = default_dt` and `alpha = default_dt / tau`
+   (with `default_dt=None` the model is fully discrete, `alpha = 1.0`).
+
+Validation: `tau <= 0` and `alpha <= 0` raise `ValueError`; `alpha > 1` warns (Euler may be unstable).
+The resolved `alpha` and effective `dt` are stored on the config and serialized to `config.json`;
+**models always read `config.alpha`** and never recompute it. Family defaults:
+
+| Family | `default_dt` | `tau` | resolved default `alpha` |
+|---|---|---|---|
+| `ctrnn` / `ei_rnn` / `constrained_rnn` (and `se_rnn`, `sparse_rnn`, `modular_rnn`) | 100.0 | 100.0 | 1.0 |
+| `latent_circuit` | 40.0 | 200.0 | 0.2 |
+| `connectome_rnn` | None (discrete) | 1.0 | 1.0 |
+| `lowrank_rnn` | 20.0 | 100.0 | 0.2 |
+
+Old checkpoints without an `alpha` field re-resolve from their stored `dt`/`tau` and are fully
+compatible. Discrete-map models (`shallow_plrnn`, `dend_plrnn`, `alrnn`) and gated models
+(`tiny_rnn`) have no Euler step and do not expose `alpha`.
 
 ---
 
@@ -375,8 +412,9 @@ class CTRNNConfig(NeuralRNNConfig):
         input_dim: int = 3,
         latent_dim: int = 64,       # Number of hidden units M
         output_dim: int = 3,        # Number of output classes
-        dt: float | None = 100.0,   # Euler step (None = discrete vanilla)
+        dt: float | None = None,    # Euler step (None + alpha=None -> 100.0, i.e. alpha=1.0)
         tau: float = 100.0,         # Time constant
+        alpha: float | None = None, # Euler update fraction; overrides dt/tau when given
         activation: str = "relu",   # Nonlinearity: relu, tanh, sigmoid, softplus,
                                     # leaky_relu/leakyrelu, elu, selu, gelu, silu/swish
         dale: bool = False,         # Dale constraint (E/I separation)
@@ -392,7 +430,7 @@ class CTRNNConfig(NeuralRNNConfig):
 ```python
 class VanillaRNNConfig(CTRNNConfig):
     model_type = "vanilla_rnn"
-    # Defaults: dt=None (discrete), all other params inherited
+    # Defaults: dt=None (discrete, resolves to alpha=1.0), all other params inherited
 ```
 
 #### `EIRNNConfig`
@@ -610,9 +648,9 @@ class LowrankRNNConfig(NeuralRNNConfig):
         latent_dim: int = 500,                 # Number of hidden units N
         output_dim: int = 1,                   # Number of output channels
         rank: int = 1,                         # Rank R of W_rec = m @ n^T / N
-        alpha: float = 0.2,                    # dt/tau, Euler discretization step
-        noise_std: float = 0.05,               # Recurrent Gaussian noise std
-        dt: float | None = None,              # Integration step (alternative to alpha)
+        alpha: float | None = None,            # Euler update fraction; overrides dt/tau when given
+        sigma_rec: float = 0.05,               # Recurrent Gaussian noise std
+        dt: float | None = None,              # Integration step (None + alpha=None -> 20.0)
         tau: float = 100.0,                   # Membrane time constant
         add_bias: bool = False,               # Whether b is trainable
         scale_by_hidden_size: bool = True,    # Divide rec/output terms by N
@@ -620,13 +658,17 @@ class LowrankRNNConfig(NeuralRNNConfig):
                                               # softplus, leaky_relu/leakyrelu, elu, selu,
                                               # gelu, silu/swish
         output_activation: str = "tanh",      # Readout activation: same supported names
-        train_wi: bool = True,                # Train input weights
-        train_wo: bool = True,                # Train output weights
-        train_wrec: bool = True,              # Train m, n low-rank factors
-        train_h0: bool = False,               # Train initial state h0
+        train_wi: bool = True,                # Selector: train wi (si frozen) or train si (wi frozen)
+        train_wo: bool = True,                # Selector: train wo (so frozen) or train so (wo frozen)
         **kwargs,
     ) -> None: ...
 ```
+
+**Freezing** uses the framework-wide `freeze_*` flags: `freeze_recurrent` freezes the low-rank
+`m, n` factors, `freeze_h0` freezes the initial state. Note the family default **`freeze_h0=True`**
+(the original code never trained h0) — pass `freeze_h0=False` to train it. The removed flags
+`train_wrec`/`train_h0` are still accepted as deprecated aliases (mapped to `freeze_recurrent`/
+`freeze_h0` with inverted logic, `DeprecationWarning`), so old checkpoints keep working.
 
 **Parameter guide**:
 - `rank`: Determines the dimensionality of the recurrent subspace. Rank 1 = line attractor, Rank 2 = plane with rotational dynamics, Rank 3+ = more complex manifolds.
@@ -676,7 +718,7 @@ class LowrankRNNModel(NeuralDynamicsModel):
 | `wo_full` | `(N, output_dim)` | Effective output weights after `so` scaling |
 | `hidden_size` | `int` | Alias for `latent_dim` |
 | `alpha` | `float` | Euler step size |
-| `noise_std` | `float` | Noise standard deviation |
+| `sigma_rec` | `float` | Noise standard deviation |
 
 **Usage example** (see `notebook/07_lowrank_RNN_paradigmA.ipynb` for the full tutorial):
 
@@ -687,7 +729,7 @@ from neuralrnn.data.tasks import rdm_trials, lr_mante_trials
 
 # ── Create model ──
 cfg = LowrankRNNConfig(input_dim=1, latent_dim=256, output_dim=1,
-                        rank=1, alpha=0.2, noise_std=0.05)
+                        rank=1, alpha=0.2, sigma_rec=0.05)
 model = LowrankRNNModel(cfg)
 
 # ── Generate data (neuralrnn built-in task generators) ──
@@ -741,7 +783,7 @@ model2 = LowrankRNNModel.from_pretrained("models/lowrank_rdm/")
 - `forward(return_dynamics=True)` returns a raw `(output_tensor, trajectories_tensor)` tuple.
 - `forward(return_dynamics=False)` (default) returns `DynamicsModelOutput`.
 - Tensors are made contiguous before saving to avoid safetensors errors.
-- `hidden_size`, `input_size`, `output_size`, `rank`, `alpha`, `noise_std` and the
+- `hidden_size`, `input_size`, `output_size`, `rank`, `alpha`, `sigma_rec` and the
   alias `non_linearity` are exposed for backward compatibility with reference analysis code.
 - `print(model)` now shows config fields and parameter shapes.
 
@@ -765,8 +807,9 @@ class ConstrainedRNNConfig(CTRNNConfig):
         input_dim: int = 3,
         latent_dim: int = 64,
         output_dim: int = 3,
-        dt: float | None = 100.0,
+        dt: float | None = None,
         tau: float = 100.0,
+        alpha: float | None = None,   # overrides dt/tau when given
         activation: str = "relu",
         rec_mask: list | np.ndarray | None = None,   # (M, M) recurrent mask
         in_mask: list | np.ndarray | None = None,    # (input_dim, M) input mask
@@ -887,8 +930,9 @@ class ConnectomeRNNConfig(NeuralRNNConfig):
         input_dim: int = 0,                # External input dimension K
         latent_dim: int = 64,              # Number of hidden units N
         output_dim: int = 64,              # Readout dimension
-        dt: float | None = None,           # Euler step (None => alpha=1)
+        dt: float | None = None,           # Euler step (None + alpha=None => alpha=1)
         tau: float = 1.0,                  # Time constant
+        alpha: float | None = None,        # Euler update fraction; overrides dt/tau when given
         activation: str = "softplus",      # Nonlinearity: relu, tanh, sigmoid, softplus,
                                             # leaky_relu/leakyrelu, elu, selu, gelu, silu/swish
         activation_beta: float = 1.0,      # Beta parameter for softplus
@@ -996,8 +1040,9 @@ class LatentCircuitConfig(NeuralRNNConfig):
         latent_dim: int = 8,        # Number of latent nodes n
         output_dim: int = 2,        # Task output dimension
         embedding_dim: int = 50,    # High-dimensional RNN size N
-        dt: float = 40.0,           # Discretization step (ms)
+        dt: float | None = None,  # Discretization step in ms (None + alpha=None -> 40 ms)
         tau: float = 200.0,         # Time constant (ms), alpha = dt/tau
+        alpha: float | None = None, # Euler update fraction; overrides dt/tau when given
         sigma_rec: float = 0.15,    # Recurrent noise std
         activation: str = "relu",   # Recurrence nonlinearity: relu, tanh, sigmoid,
                                     # softplus, leaky_relu/leakyrelu, elu, selu, gelu,

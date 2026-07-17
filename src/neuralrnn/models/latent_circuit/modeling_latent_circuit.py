@@ -53,7 +53,7 @@ class LatentCircuitModel(NeuralDynamicsModel):
         K = config.input_dim        # task input dimension
         O = config.output_dim       # task output dimension
 
-        self.alpha = config.dt / config.tau  # Euler step size
+        self.alpha = config.alpha  # Euler step size (resolved in config)
         self.sigma_rec = config.sigma_rec
         self.act = get_activation(config.activation)
 
