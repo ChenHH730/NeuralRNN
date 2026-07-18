@@ -14,7 +14,7 @@ notebook/*.py
 **/__pycache__/
 notebook/**/*.py
 docs/papers/*_cn.md
-**/*connectome*
+notebook/_*
 **/*_executed.ipynb
 # C extensions
 *.so

@@ -64,7 +64,6 @@ def test_invalid_values():
     ("ei_rnn", 1.0, 100.0),
     ("constrained_rnn", 1.0, 100.0),
     ("latent_circuit", 0.2, 40.0),
-    ("connectome_rnn", 1.0, None),
     ("lowrank_rnn", 0.2, 20.0),
 ])
 def test_family_defaults(model_type, exp_alpha, exp_dt):

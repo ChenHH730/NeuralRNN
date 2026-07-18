@@ -72,7 +72,8 @@ fps = find_fixed_points(model)
 src/neuralrnn/
   configuration_utils.py   modeling_utils.py     # core contracts (Config / Model base classes)
   auto/                    # AutoConfig / AutoModel registration & dispatch
-  models/                  # model zoo: ctrnn, ei_rnn, lowrank_rnn (Paradigm A), plrnn (Paradigm B), latent_circuit, tiny_rnn
+  models/                  # model zoo: ctrnn, ei_rnn, lowrank_rnn (Paradigm A), plrnn (Paradigm B), latent_circuit, tiny_rnn,
+                           #   constrained_rnn, gain_rnn (gain_rnn + stp_rnn)
   data/                    # unified batching, datasets, open data registry + download cache
   train/                   # generic Trainer + paradigm Objectives + reusable loss terms /
                            #   regularizers / metrics + nested cross-validation
@@ -95,7 +96,8 @@ notebook/                  # end-to-end tutorials for each paper
 | low-rank RNN | AB | ✅ |
 | constrained RNN | A | ✅ |
 | seRNN | A | ✅ |
-| connectome-constrained RNN | B | ✅ |
+| gain RNN (gain placement, masks, unified freeze) | AB | ✅ |
+| STP RNN (short-term plasticity as dynamic gain) | A | ✅ |
 
 ## Porting New Papers into the Framework
 

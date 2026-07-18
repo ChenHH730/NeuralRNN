@@ -17,7 +17,7 @@
    - [PLRNN Family (Paradigm B)](#plrnn-family-paradigm-b)
    - [Lowrank RNN Model (Paradigm A/B)](#lowrank-rnn-model-paradigm-ab)
    - [Constrained RNN Model (Paradigm A)](#constrained-rnn-model-paradigm-a)
-   - [Connectome-Constrained RNN Model (Paradigm B)](#connectome-constrained-rnn-model-paradigm-b)
+   - [Gain RNN Family (gain_rnn / stp_rnn)](#gain-rnn-family-gain_rnn--stp_rnn)
    - [Short-Term Plasticity RNN (Paradigm A)](#short-term-plasticity-rnn-paradigm-a)
    - [Latent Circuit Model (Paradigm A)](#latent-circuit-model-paradigm-a)
    - [Tiny RNN Model (Paradigm B)](#tiny-rnn-model-paradigm-b--behavioral-fitting)
@@ -105,12 +105,14 @@ The four `freeze_*` flags provide a convenient way to implement echo-state / res
 
 **Freezing has two layers.** Layer 1 is the unified vocabulary: the four `freeze_*` flags plus
 `model.freeze_parameters(groups=...)/unfreeze_parameters(...)` (per-model `_freeze_groups` map
-`input`/`recurrent`/`output`/`h0` — and for connectome_rnn also `gains`/`biases` — to parameter
-regexes). Layer 2 is family-specific flags that only exist where Layer 1 cannot express the
-semantics — e.g. CTRNN-family `trainable_h0` (structural: `False` makes h0 a buffer, not a
-parameter at all) and low-rank `train_wi`/`train_wo` (selectors choosing between the weight and
-its per-channel scaling, not freeze flags). Rule: **`freeze_*` always wins** — models apply
-family flags first and `apply_freeze_config()` last.
+`input`/`recurrent`/`output`/`h0` — and for the gain_rnn family also
+`gains`/`biases`/`stp` — to parameter regexes; gain_rnn-family configs add matching
+`freeze_gain`/`freeze_bias`/`freeze_stp` flags). Layer 2 is family-specific flags that only
+exist where Layer 1 cannot express the semantics — e.g. CTRNN-family `trainable_h0`
+(structural: `False` makes h0 a buffer, not a parameter at all) and low-rank
+`train_wi`/`train_wo` (selectors choosing between the weight and its per-channel scaling, not
+freeze flags). Rule: **`freeze_*` always wins** — models apply family flags first and
+`apply_freeze_config()` last.
 
 **Serialization Methods**:
 
@@ -158,8 +160,9 @@ The resolved `alpha` and effective `dt` are stored on the config and serialized 
 | Family | `default_dt` | `tau` | resolved default `alpha` |
 |---|---|---|---|
 | `ctrnn` / `ei_rnn` / `constrained_rnn` (and `se_rnn`, `sparse_rnn`, `modular_rnn`) | 100.0 | 100.0 | 1.0 |
+| `gain_rnn` | 100.0 | 100.0 | 1.0 |
+| `stp_rnn` | 10.0 | 100.0 | 0.1 |
 | `latent_circuit` | 40.0 | 200.0 | 0.2 |
-| `connectome_rnn` | None (discrete) | 1.0 | 1.0 |
 | `lowrank_rnn` | 20.0 | 100.0 | 0.2 |
 
 Old checkpoints without an `alpha` field re-resolve from their stored `dt`/`tau` and are fully
@@ -183,6 +186,8 @@ Family defaults (defaults never change existing behavior):
 | Family | default `nonlinearity_mode` |
 |---|---|
 | `ctrnn` / `ei_rnn` / `constrained_rnn` / `se_rnn` / `sparse_rnn` / `modular_rnn` / `latent_circuit` | `"pre_activation"` |
+| `gain_rnn` | `"rate"` |
+| `stp_rnn` | `"post_blend"` |
 | `lowrank_rnn` | `"rate"` |
 
 Key distinctions to be aware of:
@@ -207,10 +212,10 @@ Validation: unknown mode strings raise `ValueError` at config construction. The 
 on the config and serialized to `config.json`; **models always read `config.nonlinearity_mode`**.
 
 Scope: discrete-map models (`shallow_plrnn`, `dend_plrnn`, `alrnn`) and gated models
-(`tiny_rnn`) have no Euler step and do not expose this field. `connectome_rnn` is structurally
-`"rate"` (firing rates `gain·f(z + bias)` computed before the recurrent mix) but does not expose
-the field either; it will be superseded by a future `gain_rnn` module that composes `"rate"`
-mode with per-neuron gain/bias.
+(`tiny_rnn`) have no Euler step and do not expose this field. The connectome-constrained
+paradigm (Beiran & Litwin-Kumar 2025) is structurally `"rate"` (firing rates
+`gain·f(z + bias)` computed before the recurrent mix); the `gain_rnn` family (below)
+implements it by composing the three modes with per-neuron gain/bias placement.
 
 ---
 
@@ -225,7 +230,7 @@ fn = get_activation("leaky_relu", negative_slope=0.1)
 print(SUPPORTED_ACTIVATIONS)
 ```
 
-Supported names: `relu`, `tanh`, `sigmoid`, `softplus` (with `beta`), `leaky_relu`/`leakyrelu` (with `negative_slope`), `elu` (with `alpha`), `selu`, `gelu`, `silu`/`swish`.
+Supported names: `relu`, `tanh`, `sigmoid`, `softplus` (with `beta`), `leaky_relu`/`leakyrelu` (with `negative_slope`), `elu` (with `alpha`), `selu`, `gelu`, `silu`/`swish`, `piecewise_tanh` (with `r0`, `rmax`: piecewise-saturating tanh with unit slope at the origin — the Stroud et al. 2018 gain function with the gain factored out; used with `gain_position="inside"`).
 
 Each model keeps its original default activation, so existing configs and saved checkpoints are unaffected.
 
@@ -970,116 +975,184 @@ for hard-masked sparse/modular RNNs the standard `SupervisedObjective` is suffic
 
 ---
 
-### Connectome-Constrained RNN Model (Paradigm B)
+### Gain RNN Family (gain_rnn / stp_rnn)
 
-**Module**: `neuralrnn.models.connectome_rnn`
+**Module**: `neuralrnn.models.gain_rnn`
 
-Firing-rate RNN for the teacher–student paradigm of Beiran & Litwin-Kumar (2025). The recurrent weight matrix can be fixed (the connectome) while per-neuron gains and biases are the trainable single-neuron parameters.
+Unified "fixed weights + neuronal gain modulation" paradigm: per-neuron gains/biases
+parameterize the firing-rate map while connectivity can be hard-masked and/or frozen.
+The family implements the connectome-constrained teacher–student paradigm
+(Beiran & Litwin-Kumar 2025, gain outside the nonlinearity — see
+`notebook/16_connectome_rnn_paradigmB.ipynb`), covers the gain-modulation model of
+Stroud et al. 2018 (gain inside), and hosts `stp_rnn`, where short-term plasticity
+acts as a *dynamic* gain parameterization (Masse et al. 2019 / Zhou & Buonomano 2024).
+See `docs/papers/gain_rnn.md` for the theory. (The legacy `connectome_rnn` model class
+was removed in favor of this family.)
 
-Structurally this family is `"rate"`-mode (firing rates `gain·f(z + bias)` are computed from
-the state before the recurrent mix), but it does **not** expose `nonlinearity_mode`; it will be
-superseded by a future `gain_rnn` module built on the unified placement vocabulary.
+Inheritance: `StpRNNModel → GainRNNModel → ConstrainedRNNModel → CTRNNModel`, so all
+CTRNN-lineage features (masks, Dale, `nonlinearity_mode`, Euler resolution) apply.
 
-#### `ConnectomeRNNConfig`
+#### Rate map and gain placement
+
+Every nonlinearity application goes through `rate_map(u)` (default gain=1, bias=0 ⇒ plain
+activation, i.e. exact ConstrainedRNN behavior):
+
+| `gain_position` | `rate_map(u)` | Semantics |
+|---|---|---|
+| `"outside"` (default) | `gain * act(u + bias)` | output gain ≡ presynaptic column scaling of the recurrent matrix (amplitude modulation; Beiran & Litwin-Kumar) |
+| `"inside"` | `act(gain * u + bias)` | input gain ≡ slope modulation, saturation unchanged (Stroud et al.; use `activation="piecewise_tanh"`) |
+
+The bias always sits inside `act`. Note: for ReLU with positive gains the two placements
+are exactly equivalent (scale degeneracy — regularize if both placements are trained);
+negative gains under Dale constraints flip a neuron's E/I identity.
+
+Composition with `nonlinearity_mode`: `"rate"` (family default — state is a current, the
+recurrence and the **readout** consume `rate_map(z)`), `"post_blend"`, `"pre_activation"`.
+
+**Family deviations from the CTRNN base (documented and tested):**
+- In `"rate"` mode the readout reads `rate_map(z)` instead of the raw state (connectome
+  behavior; CTRNN's rate mode reads the state).
+- `recurrence` accepts `x_t=None` for autonomous rollout (input term skipped entirely).
+- `noise_position="post"` adds recurrent noise to the leaked blend before the final
+  nonlinearity (state-level noise) instead of to the pre-activation; the std still follows
+  `noise_alpha_scaling` (`sqrt(2α)·σ` when True).
+
+#### `GainRNNConfig`
 
 ```python
-class ConnectomeRNNConfig(NeuralRNNConfig):
-    model_type = "connectome_rnn"
-
+class GainRNNConfig(ConstrainedRNNConfig):
+    model_type = "gain_rnn"
+    # Family defaults: nonlinearity_mode="rate", activation="softplus"
     def __init__(
         self,
-        input_dim: int = 0,                # External input dimension K
-        latent_dim: int = 64,              # Number of hidden units N
-        output_dim: int = 64,              # Readout dimension
-        dt: float | None = None,           # Euler step (None + alpha=None => alpha=1)
-        tau: float = 1.0,                  # Time constant
-        alpha: float | None = None,        # Euler update fraction; overrides dt/tau when given
-        activation: str = "softplus",      # Nonlinearity: relu, tanh, sigmoid, softplus,
-                                            # leaky_relu/leakyrelu, elu, selu, gelu, silu/swish
-        activation_beta: float = 1.0,      # Beta parameter for softplus
-        fixed_recurrent_weight: list | np.ndarray | None = None,  # (N, N) shared J
-        dale: bool = False,                # Dale E/I constraint
-        ei_ratio: float = 0.7,             # Excitatory fraction
-        readout_e_only: bool = False,      # Readout from excitatory units only
-        trainable_gains: bool = True,      # Train per-neuron gains
-        trainable_biases: bool = True,     # Train per-neuron biases
-        trainable_recurrent: bool = True,  # Train recurrent weights
-        trainable_input: bool = True,      # Train input weights
-        trainable_output: bool = True,     # Train readout weights
-        sigma_rec: float = 0.0,            # Recurrent noise std
+        gain_position: str = "outside",        # outside | inside
+        gain_init: float | array = 1.0,        # scalar or (M,)
+        bias_init: float | array = 0.0,
+        freeze_gain: bool = False,             # Layer-1 freeze vocabulary extensions
+        freeze_bias: bool = False,
+        noise_position: str = "pre",           # pre (CTRNN behavior) | post (state-level)
+        positive_input_weights: bool = False,  # ReLU on input weights in forward
+        positive_output_weights: bool = False, # ReLU on readout weights in forward
+        activation_params: dict | None = None, # kwargs for get_activation (e.g. {"beta": 1.0})
+        h0_init: float | array = 0.0,          # initial h0 value at construction
+        **kwargs,                              # all ConstrainedRNN/CTRNN fields
+    ) -> None: ...
+```
+
+#### `GainRNNModel`
+
+```python
+@register_model("gain_rnn")
+class GainRNNModel(ConstrainedRNNModel):
+    config_class = GainRNNConfig
+
+    def rate_map(self, u) -> Tensor: ...          # parameterized firing-rate map
+    def firing_rate(self, z) -> Tensor: ...       # alias (firing-rate API naming)
+    def get_firing_rates(self, states) -> Tensor: ...
+    def recurrence(self, x_t, z_prev, *, inputs=None) -> Tensor: ...
+    def readout(self, z_t) -> Tensor: ...         # rate mode: from rate_map(z)
+```
+
+Freeze groups add `gains` (`^gain$`) and `biases` (`^bias$`) to the base four. Reproduction
+mappings: connectome student = `rate` + `outside` + `softplus` + `freeze_input/recurrent/
+output` + copying the shared J into `h2h.weight` (per-neuron teacher input via an identity
+`input2h`); Stroud 2018 = `rate` + `inside` + `activation="piecewise_tanh"`.
+
+#### `StpRNNConfig`
+
+Short-term plasticity as a dynamic gain: the effective presynaptic gain is
+`syn_x * syn_u` (Tsodyks–Markram rate form, cell-specific per presynaptic neuron):
+
+```
+syn_x' = syn_x + (dt/tau_x)(1 - syn_x) - dt_sec * syn_u * syn_x * r
+syn_u' = syn_u + (dt/tau_u)(U_eff - syn_u) + dt_sec * U_eff * (1 - syn_u) * r
+U_eff  = clamp(stp_alpha * U, 0, 1);      rec_in = r * syn_x' * syn_u'
+```
+
+`dt` in ms, `dt_sec = dt/1000` (release terms assume rates in spikes/s). STP dynamics use
+the physical `dt` and ignore an explicit `alpha` override, so `dt` is required (the model
+raises when `config.dt is None`). Family defaults reproduce the notebook-11 model
+(Masse 2019 style): `post_blend` + `relu` + `noise_position="post"` +
+`noise_alpha_scaling=True` + positive input/output weights + `h0_init=0.1` + frozen static
+gain/bias + `dt=10, tau=100`.
+
+```python
+class StpRNNConfig(GainRNNConfig):
+    model_type = "stp_rnn"
+    def __init__(
+        self,
+        stp_tau_x: float | array = 200.0,      # depression tau (ms); scalar or (M,)
+        stp_tau_u: float | array = 1500.0,     # facilitation tau (ms)
+        stp_U: float | array = 0.2,            # baseline release probability
+        stp_init: str = "constant",            # constant | alternating | random
+        tau_x_fac=1500.0, tau_u_fac=200.0, U_fac=0.15,      # "alternating" (nb11)
+        tau_x_dep=200.0, tau_u_dep=1500.0, U_dep=0.45,
+        stp_U_mean=0.5, stp_U_std=0.17, stp_U_min=0.001, stp_U_max=0.99,   # "random" (Zhou 2024)
+        stp_tau_mean=1000.0, stp_tau_std=330.0, stp_tau_min=100.0, stp_tau_max=3000.0,
+        stp_seed: int | None = None,
+        stp_alpha: float | array = 1.0,        # neuromodulator cue (runtime buffer)
+        freeze_stp: bool = True,               # both reference papers never train STP
+        init_method: str = "default",          # "gamma" = notebook-11 gamma init
+        gamma_shape_exc=0.1, gamma_shape_inh=0.2, gamma_scale=1.0,
+        init_seed: int | None = None,
         **kwargs,
     ) -> None: ...
 ```
 
-#### `ConnectomeRNNModel`
+Explicit arrays for `stp_tau_x/stp_tau_u/stp_U` take precedence over `stp_init`.
+`"alternating"` = notebook 11 (even indices facilitating, odd depressing); `"random"` =
+Zhou & Buonomano 2024 truncated normals (tau_x/tau_u sampled independently).
+
+#### `StpRNNModel`
 
 ```python
-@register_model("connectome_rnn")
-class ConnectomeRNNModel(NeuralDynamicsModel):
-    config_class = ConnectomeRNNConfig
+@register_model("stp_rnn")
+class StpRNNModel(GainRNNModel):
+    config_class = StpRNNConfig
 
-    # Latent state z is the input current x.
-    # Recurrence: x_t = (1-alpha)*x_{t-1} + alpha*(J r_{t-1} + W_in u_t + b_rec)
-    # Firing rate: r_t = gain * phi(z_t + bias)
-    # Readout:      y_t = W_out r_t + b_out
-    def recurrence(self, x_t, z_prev, *, inputs=None) -> Tensor: ...
-    def readout(self, z_t) -> Tensor: ...
-
-    def firing_rate(self, z: Tensor) -> Tensor: ...      # r = gain * phi(z + bias)
-    def get_firing_rates(self, states: Tensor) -> Tensor: ...  # convenience over trajectory
+    # Latent state is [h, syn_x, syn_u] (3M). forward returns states = h only
+    # (B,T,M) and extras = {"syn_x", "syn_u"}.
+    def recurrence(self, x_t, z_prev, *, inputs=None):
+        """(B,3M) -> (B,3M); analysis fallback (B,M) treats syn_x=syn_u=1 -> (B,M)."""
+    def init_state(self, batch_size, device) -> Tensor: ...   # [h0, 1, U_eff] steady state
+    def set_stp_alpha(self, value) -> None: ...   # trial-level cue; scalar or (M,)
+    def get_stp_alpha(self) -> Tensor: ...
+    @staticmethod
+    def synaptic_efficacy(extras) -> Tensor: ...  # syn_x * syn_u
+    def forward_with_dropout(self, inputs, ...): ...  # h-only dropout override
 ```
 
-**Usage example**:
+Additional freeze group `stp` (`stp_tau_x`/`stp_tau_u`/`stp_U`). Notebook-11 parity
+details: `input2h.bias` is zeroed and frozen (the reference model has no input bias);
+`init_method="gamma"` reproduces the reference weight init. Helper
+`make_stp_masks(latent_dim, output_dim, ei_ratio, no_self_connections, readout_e_only)`
+builds the rec/out masks (zero diagonal, E-only readout) in the framework's conventions.
 
-```python
-from neuralrnn import AutoConfig, AutoModel
-import numpy as np
+**Analysis caveat**: fixed-point / linearization tools call `recurrence` with M-dim
+states, so they analyze the frozen-efficacy (syn_x = syn_u = 1) M-dim map, not the full
+3M system — interpret fixed points accordingly. `forward(initial_state=...)` requires the
+full (B, 3M) state and raises otherwise. `stp_alpha` is a runtime buffer: the config field
+is only its initial value, and `save/load` restores the buffer from the checkpoint.
 
-N = 300
-J = np.random.randn(N, N).astype(np.float32) * 0.5 / np.sqrt(N)
-
-cfg = AutoConfig.for_model(
-    'connectome_rnn',
-    input_dim=2, latent_dim=N, output_dim=2,
-    dt=0.1, tau=1.0,
-    activation='softplus', activation_beta=1.0,
-    fixed_recurrent_weight=J,
-    trainable_gains=True, trainable_biases=True,
-)
-model = AutoModel.from_config(cfg)
-```
+Reproduction mappings: notebook 11 = defaults + `stp_init="alternating"` +
+`make_stp_masks` + `dale=True` + `init_method="gamma"`; Zhou & Buonomano 2024 =
+`nonlinearity_mode="rate"` + `stp_init="random"` + `positive_output_weights=False` +
+per-trial `model.set_stp_alpha(alpha)`.
 
 ---
 
 ### Short-Term Plasticity RNN (Paradigm A)
 
-**Status**: Currently implemented inline in `notebook/11_STP_RNN_paradigmA.ipynb`; will be
-moved to `neuralrnn.models.stp_rnn` once the reproduction is validated.
+**Status**: Migrated — the notebook-11 inline model is now part of the gain_rnn family as
+`model_type="stp_rnn"` (`neuralrnn.models.gain_rnn.StpRNNModel`, defaults reproduce the
+notebook-11 math). See *Gain RNN Family* above and `docs/papers/stp_rnn.md`.
 
 STP-RNN from Masse et al. (2019). Continuous-time ReLU RNN with Dale constraints and
 per-neuron short-term synaptic plasticity (facilitating / depressing). Used to study
 activity-silent maintenance (DMS) vs. manipulation-driven persistent activity (DRMS,
-ABBA).
-
-Key inline classes:
-
-```python
-class STPRNNConfig(NeuralRNNConfig):
-    model_type = "stp_rnn"
-    # input_dim=24, latent_dim=100, output_dim=3
-    # dt=10.0, tau=100.0, ei_ratio=0.8
-    # spike_cost=0.02, sigma_rec=0.5, sigma_in=0.1
-
-@register_model("stp_rnn")
-class STPRNNModel(NeuralDynamicsModel):
-    config_class = STPRNNConfig
-    # Recurrence with (h, syn_x, syn_u) state of size 3*M
-    def recurrence(self, x_t, z_prev, *, inputs=None) -> Tensor: ...
-    def readout(self, z_t) -> Tensor: ...
-```
-
-See `docs/papers/stp_rnn.md` and `notebook/11_STP_RNN_paradigmA.ipynb` for the full
-equations, task generators, and analysis workflow.
+ABBA). See `notebook/11_STP_RNN_paradigmA.ipynb` for the original reproduction (its
+inline class still shadows the registry inside that notebook; its old checkpoints are
+incompatible with the new src class and were already marked for deletion).
 
 ---
 

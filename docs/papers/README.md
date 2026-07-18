@@ -15,8 +15,9 @@ For each paper integrated into NeuralRNN, we keep a "method note": it explains w
 | Latent Circuit | A | `models/latent_circuit` | [latent_circuit.md](latent_circuit.md) | ✅ Ready |
 | Echo-State / Critical Initialization | A | `models/ctrnn` + `freeze_*` | [esn.md](esn.md) | ✅ Ready |
 | Constrained RNN (seRNN / sparse / modular) | A | `models/constrained_rnn` | [constrained_rnn.md](constrained_rnn.md) | ✅ Ready |
-| Connectome-Constrained RNN | B | `models/connectome_rnn` | [connectome_constrained_rnn.md](connectome_constrained_rnn.md) | ✅ Ready |
-| Short-Term Plasticity RNN | A | inline (`notebook/11_STP_RNN_paradigmA.ipynb`) | [stp_rnn.md](stp_rnn.md) | 🚧 Notebook port |
+| Connectome-Constrained RNN | B | `models/gain_rnn` + `notebook/16_connectome_rnn_paradigmB.ipynb` | [connectome_constrained_rnn.md](connectome_constrained_rnn.md) | ✅ Reproduced (Fig. 1 & 2) |
+| Gain RNN family (gain_rnn / stp_rnn) | AB | `models/gain_rnn` | [gain_rnn.md](gain_rnn.md) | ✅ Ready |
+| Short-Term Plasticity RNN | A | `models/gain_rnn` (`stp_rnn`) + `notebook/11_STP_RNN_paradigmA.ipynb` | [stp_rnn.md](stp_rnn.md) | ✅ Model migrated |
 | Neural Sequence Models (Orhan 2019; Zhou 2023) | A | `models/ctrnn` + `models/ctrnn.ei_rnn` + `analysis/sequentiality` | [neural_sequence.md](neural_sequence.md) | ✅ Ready |
 | Multitask RNN (Yang et al., 2019) | A | `models/ctrnn` + `data/tasks/multitask_yang_task.py` | [multitask.md](multitask.md) | ✅ Ready |
 

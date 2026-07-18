@@ -52,19 +52,35 @@ The postsynaptic input uses the STP-modulated presynaptic activity `h_post = x·
 
 ## Framework mapping
 
-The current port is implemented inline in:
+The model layer is now part of the gain_rnn family in `src/neuralrnn/models/gain_rnn/`
+(registered as `model_type="stp_rnn"`; see `docs/papers/gain_rnn.md` for the unified
+design). The task-level reproduction remains in:
 
-- `notebook/11_STP_RNN_paradigmA.ipynb`
+- `notebook/11_STP_RNN_paradigmA.ipynb` (inline model class; kept as the validated
+  task-level reproduction)
 
-It defines:
+Mapping from the notebook-11 inline model to the src `stp_rnn`:
 
-- `STPRNNConfig` / `STPRNNModel` — inline STP-RNN with Dale constraints.
-- `STPSupervisedObjective` — masked cross-entropy + L2 firing-rate penalty.
-- `DMSDataset` / `ABBADataset` — motion-direction task generators.
-- SVM decoding, shuffle analysis, PCA, and fixed-point analysis using `neuralrnn.analysis`.
+| Notebook 11 (inline) | src `stp_rnn` |
+|---|---|
+| `synapse_config="full"` (alternating fac/dep) | `stp_init="alternating"` (default fac/dep triples identical) |
+| `alpha_x/alpha_u/U` buffers | `stp_tau_x/stp_tau_u/stp_U` parameters (ms), `freeze_stp=True` |
+| noise `sqrt(2*alpha)*sigma_rec` after blend | `noise_position="post"` + `noise_alpha_scaling=True` (defaults) |
+| `F.relu(w_in)` / `F.relu(w_out) * w_out_mask` | `positive_input_weights` / `positive_output_weights` (defaults True) + `out_mask` |
+| `w_rnn_mask` (zero diagonal) | `make_stp_masks(...)` → `rec_mask` |
+| gamma init (`gamma_shape_exc/inh/scale`) | `init_method="gamma"` + same field names |
+| `h0 = 0.1`, `syn_u_init = U` | `h0_init=0.1` (default); `init_state` = `[h0, 1, U_eff]` |
+| `bias_rnn` parameter | `h2h.bias` |
+| no input bias | `input2h.bias` zeroed and frozen |
 
-The notebook now matches the reference TensorFlow implementation on the following details,
-which are required to reproduce the paper's decoding results:
+The full state is `[h, syn_x, syn_u]` (3M); `forward` returns `states = h` and
+`extras = {"syn_x", "syn_u"}`, so the decoding/shuffle analyses in the notebook port
+directly. Old `./models/11/stp_rnn_*` checkpoints were trained by the buggy pre-fix
+code and are incompatible with the new class — delete them before any re-run.
+
+The notebook matches the reference TensorFlow implementation on the following details,
+which are required to reproduce the paper's decoding results (all preserved in the src
+model):
 
 1. **STP steady-state initialization**: `syn_u_init = U` (0.15 fac, 0.45 dep), not 1.0.
 2. **Input noise**: scaled by `sqrt(2/alpha)` so the effective std is ~0.447.
@@ -75,8 +91,9 @@ which are required to reproduce the paper's decoding results:
 7. **Initial firing rate**: `h0 = 0.1`.
 8. **Decoding normalization**: per-neuron min-max scaling on the training split before SVM fitting.
 
-Once the port is validated, the model will be moved to `src/neuralrnn/models/stp_rnn/` and
-registered with `AutoConfig` / `AutoModel` following Contract A.
+The src model additionally generalizes to Zhou & Buonomano (2024)-style neuromodulated
+STP (`stp_init="random"` + per-trial `model.set_stp_alpha(...)` +
+`nonlinearity_mode="rate"`); see `docs/papers/gain_rnn.md`.
 
 ## Diff-test points against the original code
 
