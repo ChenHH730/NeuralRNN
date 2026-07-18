@@ -42,9 +42,13 @@ class CTRNNModel(NeuralDynamicsModel):
 
         # Dale constraints (EI variant): fixed sign mask + non-negative weight magnitudes; see EI_RNN.ipynb.
         if config.dale:
-            n_exc = int(round(M * config.ei_ratio))
-            sign = torch.ones(M)
-            sign[n_exc:] = -1.0
+            if getattr(config, "dale_signs", None) is not None:
+                # Per-unit sign vector (e.g. per-area E/I splits); validated in config.
+                sign = torch.tensor(config.dale_signs, dtype=torch.float32)
+            else:
+                n_exc = int(round(M * config.ei_ratio))
+                sign = torch.ones(M)
+                sign[n_exc:] = -1.0
             self.register_buffer("dale_mask", torch.diag(sign))  # (M,M)
         else:
             self.dale_mask = None

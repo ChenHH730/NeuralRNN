@@ -17,6 +17,7 @@
    - [PLRNN Family (Paradigm B)](#plrnn-family-paradigm-b)
    - [Lowrank RNN Model (Paradigm A/B)](#lowrank-rnn-model-paradigm-ab)
    - [Constrained RNN Model (Paradigm A)](#constrained-rnn-model-paradigm-a)
+   - [Multi-Area RNN Model (Paradigm A)](#multi-area-rnn-model-paradigm-a)
    - [Gain RNN Family (gain_rnn / stp_rnn)](#gain-rnn-family-gain_rnn--stp_rnn)
    - [Short-Term Plasticity RNN (Paradigm A)](#short-term-plasticity-rnn-paradigm-a)
    - [Latent Circuit Model (Paradigm A)](#latent-circuit-model-paradigm-a)
@@ -159,7 +160,7 @@ The resolved `alpha` and effective `dt` are stored on the config and serialized 
 
 | Family | `default_dt` | `tau` | resolved default `alpha` |
 |---|---|---|---|
-| `ctrnn` / `ei_rnn` / `constrained_rnn` (and `se_rnn`, `sparse_rnn`, `modular_rnn`) | 100.0 | 100.0 | 1.0 |
+| `ctrnn` / `ei_rnn` / `constrained_rnn` (and `se_rnn`, `sparse_rnn`, `modular_rnn`, `multiarea_rnn`) | 100.0 | 100.0 | 1.0 |
 | `gain_rnn` | 100.0 | 100.0 | 1.0 |
 | `stp_rnn` | 10.0 | 100.0 | 0.1 |
 | `latent_circuit` | 40.0 | 200.0 | 0.2 |
@@ -185,7 +186,7 @@ Family defaults (defaults never change existing behavior):
 
 | Family | default `nonlinearity_mode` |
 |---|---|
-| `ctrnn` / `ei_rnn` / `constrained_rnn` / `se_rnn` / `sparse_rnn` / `modular_rnn` / `latent_circuit` | `"pre_activation"` |
+| `ctrnn` / `ei_rnn` / `constrained_rnn` / `se_rnn` / `sparse_rnn` / `modular_rnn` / `multiarea_rnn` / `latent_circuit` | `"pre_activation"` |
 | `gain_rnn` | `"rate"` |
 | `stp_rnn` | `"post_blend"` |
 | `lowrank_rnn` | `"rate"` |
@@ -470,6 +471,9 @@ class CTRNNConfig(NeuralRNNConfig):
                                     # leaky_relu/leakyrelu, elu, selu, gelu, silu/swish
         dale: bool = False,         # Dale constraint (E/I separation)
         ei_ratio: float = 0.8,      # Excitatory fraction (when dale=True)
+        dale_signs: list[float] | None = None,  # Optional per-unit sign vector (+1 E / -1 I),
+                                    # length latent_dim; implies dale=True and overrides
+                                    # the global ei_ratio split (e.g. per-area 80/20 splits)
         trainable_h0: bool = False, # Trainable initial state
         sigma_rec: float = 0.0,     # Recurrent noise std (0 = off)
         noise_alpha_scaling: bool = False,  # True: noise std sqrt(2*alpha*sigma^2)
@@ -959,6 +963,69 @@ class SparseRNNModel(ConstrainedRNNModel): ...
 
 @register_model("modular_rnn")
 class ModularRNNModel(ConstrainedRNNModel): ...
+```
+
+### Multi-Area RNN Model (Paradigm A)
+
+Cascaded multi-area CTRNN (Kleinman et al. 2025, eLife; see
+`docs/papers/multi-area_rnn.md`). A thin Contract-A adapter over
+`ConstrainedRNNModel`: all dynamics are inherited; the family only generates
+block-structured masks (dense intra-area, sparse excitatory-source inter-area
+split into feedforward/feedback) and a per-area Dale sign vector. Weight
+convention: `rec_mask[target, source]`; inter-area blocks connect only
+adjacent areas and originate exclusively from the source area's E units.
+
+#### `MultiAreaRNNConfig`
+
+```python
+class MultiAreaRNNConfig(ConstrainedRNNConfig):
+    model_type = "multiarea_rnn"
+
+    def __init__(
+        self,
+        area_sizes: tuple | list = (100, 100, 100),  # latent_dim = sum(area_sizes)
+        ei_ratio: float = 0.8,          # E fraction *within each area*
+        intra_density: float = 1.0,     # intra-area recurrent density
+        ff_ee_density: float = 0.10,    # feedforward E->E density (adjacent areas)
+        ff_ei_density: float = 0.02,    # feedforward E->I density
+        fb_density: float = 0.05,       # feedback E->E density (0 = pure cascade)
+        fb_ei_density: float = 0.0,     # feedback E->I density
+        input_areas: tuple | list = (0,),  # areas receiving external input
+        input_e_only: bool = False,
+        output_area: int = -1,          # readout area (negative = from the end)
+        output_e_only: bool = True,     # readout only from the output area's E units
+        allow_self_connections: bool = True,
+        rec_spectral_radius: float | None = 1.0,  # rescale effective |W|@dale
+                                    # spectral radius at init (None = disable);
+                                    # default framework init explodes under Dale
+        spectral_norm_iters: int = 100,
+        mask_seed: int = 42,
+        **kwargs,
+    ) -> None: ...
+```
+
+#### `MultiAreaRNNModel` and mask utilities
+
+```python
+@register_model("multiarea_rnn")
+class MultiAreaRNNModel(ConstrainedRNNModel):
+    config_class = MultiAreaRNNConfig
+    area_slices: list[slice]            # per-area unit-index slices
+
+    def area_states(self, states, area: int) -> Tensor: ...  # slice (..., M) to one area
+
+# Pure mask builder (also used for the manual constrained_rnn construction path):
+def build_multiarea_masks(area_sizes, input_dim, output_dim, ...) \
+        -> (rec_mask, in_mask, out_mask, dale_signs): ...
+def area_slices(area_sizes) -> list[slice]: ...
+def area_ei_indices(area_sizes, ei_ratio) -> (dale_signs, e_indices, i_indices): ...
+def rescale_effective_spectral_radius(model, target, iters=100): ...
+    # Works on any ConstrainedRNNModel (manual-mask path uses it explicitly).
+```
+
+Masks are regenerated deterministically from `mask_seed` on load (same pattern
+as `sparse_rnn` / `modular_rnn`); `area_sizes` etc. are serialized in
+`config.json`.
 ```
 
 #### `ConstrainedSupervisedObjective`
@@ -1533,6 +1600,7 @@ class CognitiveTaskDataset(BaseDataset):
 | `siegel_miller` | Ctx Decision (Siegel 2015) | 6 | 2 | Backward-compatible alias for `mante` |
 | `multitask_yang` | Yang 20-task set | 85 | 33 | 20 simultaneous cognitive tasks with one-hot rule input |
 | `multitask_flexible` | Driscoll 15-task set | 20 | 3 | 15 flexible tasks with 2D circular stimuli/responses |
+| `checkerboard` | Checkerboard decision (Kleinman 2025) | 4 | 2 | Report majority color by reaching to the matching target; color/direction decisions independent; 10% catch trials |
 
 **Multitask dataset wrappers**:
 ```python
@@ -2211,6 +2279,46 @@ def power_spectrum_error(X, X_gen, smoothing=20.0) -> float:
 
 def hellinger_distance(p, q) -> float:
     """Hellinger distance between two distributions (arrays)."""
+```
+
+### Demixed PCA and Axis Alignment
+
+**Module**: `neuralrnn.analysis.demixed`
+
+Marginalization-based demixed PCA (Kobak et al. 2016, eLife 5:e10989;
+official code: https://github.com/wielandbrendel/dPCA, reference copy at
+`reference_project/analysis/dPCA`) for trial-aligned RNN
+states, plus the axis-alignment utilities used by Kleinman et al. (2025) to
+relate representational axes to inter-area weight structure. Pure numpy;
+consumes arrays and the per-trial condition dicts from the data layer.
+Centering is per neuron across trials and time (as in the official package);
+axes come from the SVD of each marginalized condition-mean matrix (a
+simplification of the official regularized encoder/decoder optimization —
+equivalent when trial noise is ignored, as for RNN trajectories).
+
+```python
+def fit_dpca(states, conditions, variables=("direction", "color"), n_axes=1) -> DPCAResult:
+    """states: (n_trials, T, M). conditions: per-trial dicts containing every
+    key in `variables` (filter out catch trials beforehand). Returns unit axes
+    and trial-count-weighted variance fractions per marginalization
+    ("condition_independent", each variable, all interactions)."""
+
+@dataclass
+class DPCAResult:
+    axes: dict[str, np.ndarray]         # marginalization -> (n_axes, M)
+    variance_ratio: dict[str, float]    # marginalization -> variance fraction
+    def transform(self, states, marginalization: str) -> np.ndarray: ...
+
+def axis_overlap_matrix(axes_a, axes_b) -> np.ndarray:
+    """Dot products between unit axis sets (partial orthogonalization, Fig. 4b)."""
+
+def axis_svd_alignment(axis, W, n_random=100, seed=0) -> dict:
+    """|cos| of an axis with each right singular vector of W (e.g. W21) plus a
+    random-vector baseline (Fig. 4f)."""
+
+def potent_null_projection(axis, W, rank: int) -> dict:
+    """Squared-norm fractions of an axis in the top-`rank` potent space vs the
+    null space of W (Fig. 4c)."""
 ```
 
 ### Line Attractor Analysis

@@ -28,6 +28,7 @@ This document inventories the task generators shipped in `src/neuralrnn/data/tas
 | `raposo` | `raposo_task.py` | Multisensory decision making | 4 | 1 | — |
 | `dms` | `dms_task.py` | Delayed match-to-sample (discrete A/B) | 2 | 1 | — |
 | `lr_mante` | `lr_mante_task.py` | Context-dependent DM (low-rank format) | 4 | 1 | — |
+| `checkerboard` | `checkerboard_task.py` | Checkerboard majority-color DM (Kleinman et al. 2025) | 4 | 2 | 10% catch trials; train/eval timing modes |
 
 ### 1. Context-dependent decision-making family
 
@@ -119,6 +120,18 @@ This document inventories the task generators shipped in `src/neuralrnn/data/tas
 - **Defaults**: `num_trials=1000`, `coherences=[-4,-2,-1,1,2,4]`, `std=0.1`.
 - **Timing** (ms, `dt=20ms`): fixation 100, ctx_pre 350, stimulus 800, delay 100, decision 20.
 
+### 6. Checkerboard decision-making family
+
+#### `checkerboard` — Kleinman et al. (2025) checkerboard DM
+
+- **Objective**: Report the majority color of a red/green checkerboard by reaching to the matching target; target colors are randomized across left/right so color and direction decisions are statistically independent.
+- **Inputs**: `(N, n_t, 4)` — `[left_target_color (-1 red/+1 green), right_target_color, red_coh, green_coh]`; target channels on during the targets epoch, coherence channels (+ independent N(0, 0.1^2) noise) on during decision.
+- **Targets**: `(N, n_t, 2)` — `[left_dv, right_dv]`, correct DV = 1 during decision, else 0.
+- **Mask**: `(N, n_t, 2)` — 0 during the first 200 ms of the decision epoch (integration ramp) and padding, 1 elsewhere.
+- **Defaults**: `n_trials=64`, `dt=10.0`, `cohs=linspace(-0.9, 0.9, 14)`, `catch_fraction=0.1`, `input_noise_std=0.1`, `loss_ramp_ms=200`.
+- **Timing** (ms): center hold ~N(200, 50^2) -> targets ~U[600, 1000] -> decision 1500 -> off 100; `mode="eval"` fixes (200, 800, 1500, 100) for trial alignment. Train-mode trials are zero-padded to the batch max.
+- **Conditions**: `coherence`, `left_color`, `correct_choice` (0 left / 1 right / -1 catch), `catch`, `epoch_bounds`. Catch trials: half no input, half targets only.
+
 ## Notebook Usage Mapping
 
 | Task | Used in notebook(s) | How |
@@ -133,6 +146,7 @@ This document inventories the task generators shipped in `src/neuralrnn/data/tas
 | `dms` | `07_lowrank_RNN_paradigmA.ipynb`, `test/07a_DMS_test.ipynb` | Learnability check |
 | `raposo` | `07_lowrank_RNN_paradigmA.ipynb` | 5-task accuracy check |
 | `lr_mante` | `07_lowrank_RNN_paradigmA.ipynb`, `08_lowrank_RNN_paradigmB.ipynb` | Mante analysis / LINT |
+| `checkerboard` | `17_multi_area_rnn_paradigmA.ipynb` | Multi-area RNN training (Kleinman 2025) |
 
 ## Related Registry Entries
 

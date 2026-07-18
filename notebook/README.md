@@ -21,6 +21,7 @@ Every notebook is to implement a proposed method from previous works, with the s
 | [14_activation_paradigmA.ipynb](14_activation_paradigmA.ipynb) | Task | Tolmachev & Engel (2025) | activation function comparison |
 | [15_neural_sequence_paradigmA.ipynb](15_neural_sequence_paradigmA.ipynb) | Task | Orhan & Ma (2019); Zhou et al. (2023) Figure 3 | inline Orhan/Zhou T+WM tasks · `ctrnn` · `ei_rnn` · sequentiality index · effective dimensionality · ramp-to-sequence transition |
 | [16_connectome_rnn_paradigmB.ipynb](16_connectome_rnn_paradigmB.ipynb) | Reconstruction | Beiran & Litwin-Kumar (2025) | `gain_rnn` · cycling task · teacher-student (shared J, gain/bias only) · Fig.1 readout-trained student · Fig.2 recorded-activity students (M=30/60/90/180) |
+| [17_multi_area_rnn_paradigmA.ipynb](17_multi_area_rnn_paradigmA.ipynb) | Task | Kleinman et al. (2025) | `multiarea_rnn` (+ manual `constrained_rnn` masks) · checkerboard task · information bottleneck across 3 areas · dPCA · W21/W32 SVD alignment |
 | [cognitive_tasks.ipynb](cognitive_tasks.ipynb) | Gallery | Built-in tasks | Visualize all built-in cognitive tasks (inputs / targets / masks) |
 | [objectives_tutorial.ipynb](objectives_tutorial.ipynb) | Tutorial | — | `Objective` layer, built-in objectives, loss terms, custom objectives, `build_objective` |
 

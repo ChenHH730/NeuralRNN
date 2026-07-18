@@ -120,6 +120,12 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
         loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
         extra={"task_name": "go_nogo"},
     ),
+    # Kleinman et al. 2025: checkerboard decision task (procedurally generated)
+    "checkerboard": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "checkerboard"},
+    ),
     # Tiny RNN: Bartolo Monkey probabilistic reversal-learning task behavioral data
     "bartolo_monkey": DatasetSpec(
         kind="behavioral",

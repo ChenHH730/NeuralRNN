@@ -77,6 +77,13 @@ from .line_attractor import (
     LineAttractorPoint,
     LineAttractorResult,
 )
+from .demixed import (
+    fit_dpca,
+    DPCAResult,
+    axis_overlap_matrix,
+    axis_svd_alignment,
+    potent_null_projection,
+)
 
 __all__ = [
     # -- linalg utils --
@@ -157,4 +164,10 @@ __all__ = [
     "compute_line_attractor",
     "LineAttractorPoint",
     "LineAttractorResult",
+    # -- demixed PCA / axis alignment --
+    "fit_dpca",
+    "DPCAResult",
+    "axis_overlap_matrix",
+    "axis_svd_alignment",
+    "potent_null_projection",
 ]

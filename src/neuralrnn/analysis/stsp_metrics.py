@@ -1,4 +1,4 @@
-"""Dynamical reconstruction evaluation metrics: D_stsp and D_H (ported from CNS2023_tutorial.ipynb).
+"""Dynamical reconstruction evaluation metrics: D_stsp and D_H (from PLRNN family).
 
 D_stsp (state-space divergence): compares the distributional divergence between generated and real
 trajectories in state space.

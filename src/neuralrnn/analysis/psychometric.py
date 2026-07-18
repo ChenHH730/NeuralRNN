@@ -2,9 +2,8 @@
 
 Computes and fits psychometric curves (probability of right choice vs coherence)
 separately for different task contexts.
-
-Reference: Langdon & Engel (2025), Nature Neuroscience.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

@@ -27,6 +27,10 @@ class CTRNNConfig(NeuralRNNConfig):
             leaky_relu/leakyrelu, elu, selu, gelu, silu/swish (default "relu").
         dale:       Whether to enforce Dale constraints (excitatory/inhibitory separation); True for EI variant
         ei_ratio:   Fraction of excitatory units (effective when dale=True)
+        dale_signs: Optional per-unit sign vector (+1 excitatory / -1 inhibitory),
+            length must equal latent_dim. When provided it implies dale=True and
+            takes precedence over ei_ratio (which only supports a single global
+            E/I split; dale_signs allows e.g. per-area 80/20 splits).
         trainable_h0: Whether the initial state is a trainable parameter.
             Structural switch: False -> h0 is a fixed buffer (not in
             named_parameters at all, stronger than freezing); True -> h0 is an
@@ -56,6 +60,7 @@ class CTRNNConfig(NeuralRNNConfig):
         activation: str = "relu",
         dale: bool = False,
         ei_ratio: float = 0.8,
+        dale_signs: list[float] | None = None,
         trainable_h0: bool = False,
         sigma_rec: float = 0.0,
         noise_alpha_scaling: bool = False,
@@ -68,8 +73,15 @@ class CTRNNConfig(NeuralRNNConfig):
                          output_dim=output_dim, dt=dt, activation=activation, **kwargs)
         self.alpha = alpha
         self.tau = tau
-        self.dale = dale
+        self.dale = dale or (dale_signs is not None)
         self.ei_ratio = ei_ratio
+        if dale_signs is not None:
+            if len(dale_signs) != latent_dim:
+                raise ValueError(
+                    f"dale_signs length {len(dale_signs)} != latent_dim {latent_dim}")
+            if any(s not in (1, -1, 1.0, -1.0) for s in dale_signs):
+                raise ValueError("dale_signs entries must be +1 (E) or -1 (I)")
+        self.dale_signs = dale_signs
         self.trainable_h0 = trainable_h0
         self.sigma_rec = sigma_rec
         self.noise_alpha_scaling = noise_alpha_scaling

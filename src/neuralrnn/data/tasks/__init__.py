@@ -24,6 +24,7 @@ from .go_nogo_task import generate_trials as go_nogo_trials
 from .multitask_yang_task import generate_trials as multitask_yang_trials
 from .multitask_flexible_task import generate_trials as multitask_flexible_trials
 from .multitask_flexible_dataset import MultitaskFlexibleDataset
+from .checkerboard_task import generate_trials as checkerboard_trials
 
 TASK_REGISTRY = {
     # Context-dependent decision making
@@ -48,6 +49,8 @@ TASK_REGISTRY = {
     # Multitask families
     "multitask_yang": multitask_yang_trials,
     "multitask_flexible": multitask_flexible_trials,
+    # Checkerboard decision making (Kleinman et al. 2025)
+    "checkerboard": checkerboard_trials,
 }
 
 __all__ = [
@@ -64,4 +67,5 @@ __all__ = [
     "multitask_yang_trials",
     "multitask_flexible_trials",
     "MultitaskFlexibleDataset",
+    "checkerboard_trials",
 ]

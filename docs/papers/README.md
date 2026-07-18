@@ -6,7 +6,7 @@ For each paper integrated into NeuralRNN, we keep a "method note": it explains w
 
 | Paper / Project | Paradigm | Framework Target | Note | Code Status |
 |---|---|---|---|---|
-| nn-brain (CTRNN + fixed-point analysis) | A | `models/ctrnn` + `analysis` | [ctrnn.md](ctrnn.md) | ✅ Reference implementation |
+| CTRNN + fixed-point analysis | A | `models/ctrnn` + `analysis` | [ctrnn.md](ctrnn.md) | ✅ Reference implementation |
 | Durstewitz lab (shallowPLRNN / DSR) | B | `models/plrnn` + `analysis` | [plrnn.md](plrnn.md) | ✅ Reference implementation |
 | dendPLRNN (Brenner et al. 2022) | B | `models/plrnn` + `analysis` | [plrnn.md](plrnn.md) | ✅ Reference implementation |
 | ALRNN-DSR (Brenner et al. 2024) | B | `models/plrnn` + `analysis` | [plrnn.md](plrnn.md) | ✅ Reference implementation |
