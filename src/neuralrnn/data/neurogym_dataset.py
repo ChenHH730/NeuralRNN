@@ -31,7 +31,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from .base import BaseDataset
+from .base import BaseDataset, Trials, subset_trials
 
 # gymnasium emits the first message when an attribute is read through a wrapper chain, and the
 # second for neurogym env registrations that declare no render_modes metadata. We build unwrapped
@@ -195,7 +195,7 @@ class NeurogymDataset(BaseDataset):
         if n_trials is not None:
             ds = cls(env, None, input_dim, output_dim,
                      batch_size=batch_size, seq_len=seq_len, output_type=output_type)
-            ds._generate_trials(n_trials, seed=seed)
+            ds.inputs, ds.targets, ds.mask, ds.conditions = ds._generate_trials(n_trials, seed=seed)
             return ds
 
         with warnings.catch_warnings():
@@ -225,9 +225,10 @@ class NeurogymDataset(BaseDataset):
 
     # ------------------------------------------------------------------ trial-aligned mode
 
-    def _generate_trials(self, n_trials: int, seed: int | None = None) -> None:
-        """Pre-generate ``n_trials`` complete trials from the unwrapped env (zero-padded to the
-        longest trial) and store them with the same field layout as CognitiveTaskDataset."""
+    def _generate_trials(self, n_trials: int, seed: int | None = None):
+        """Generate ``n_trials`` complete trials from the unwrapped env (zero-padded to the
+        longest trial) and return (inputs, targets, mask, conditions) with the same field
+        layout as CognitiveTaskDataset."""
         env = self.env
         if seed is not None:
             env.seed(seed)
@@ -243,6 +244,7 @@ class NeurogymDataset(BaseDataset):
                 cond["epochs"] = {p: (int(env.start_ind[p]), int(env.end_ind[p]))
                                   for p in env.start_ind}
                 cond["n_steps"] = int(ob.shape[0])
+                cond.setdefault("is_catch", False)
                 obs_list.append(ob)
                 gt_list.append(gt)
                 conditions.append(cond)
@@ -260,10 +262,22 @@ class NeurogymDataset(BaseDataset):
         for i, gt in enumerate(gt_list):
             targets[i, : gt.shape[0]] = gt
 
-        self.inputs = torch.from_numpy(inputs)              # (N, T_max, input_dim)
-        self.targets = torch.from_numpy(targets)            # (N, T_max) or (N, T_max, act_dim)
-        self.mask = torch.from_numpy(mask)                  # (N, T_max)
-        self.conditions = conditions                        # list of N per-trial dicts
+        return (torch.from_numpy(inputs),   # (N, T_max, input_dim)
+                torch.from_numpy(targets),  # (N, T_max) or (N, T_max, act_dim)
+                torch.from_numpy(mask),     # (N, T_max)
+                conditions)                 # list of N per-trial dicts
+
+    def sample_trials(self, n: int, seed: int | None = None) -> Trials:
+        """Return n complete trials as a ``Trials`` object — in either mode, without
+        creating a second dataset (replaces the ``ds_viz = load_dataset(..., n_trials=n)``
+        pattern). Streaming mode: fresh trials are generated from the held env.
+        Trial-aligned mode: subset of the pre-generated trials (first-n, or seeded
+        random when ``seed`` is given)."""
+        if not self._trial_aligned:
+            inputs, targets, mask, conditions = self._generate_trials(n, seed=seed)
+            return Trials(inputs, targets, mask, conditions)
+        return subset_trials(self.inputs, self.targets, self.mask,
+                             self.conditions, n, seed)
 
     def _require_trials(self) -> None:
         if not self._trial_aligned:

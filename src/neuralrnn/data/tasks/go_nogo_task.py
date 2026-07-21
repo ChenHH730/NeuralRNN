@@ -13,71 +13,86 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+from .task_base import Task
 
-def generate_trials(
-    n_steps: int = 60,
-    stim_on: int = 0,
-    stim_off: int = 60,
-    cue_on: int = 30,
-    cue_off: int = 60,
-    n_values: int = 11,
-    input_dim: int = 3,
-    output_dim: int = 1,
-    mask_periods: tuple[tuple[int, int], ...] = ((10, 30), (40, 60)),
-    seed: int | None = None,
-):
-    """Generate Go/NoGo trials.
 
-    Args:
-        n_steps: Trial length in time steps.
-        stim_on: Start of stimulus period.
-        stim_off: End of stimulus period.
-        cue_on: Start of Go cue.
-        cue_off: End of Go cue.
-        n_values: Number of input values uniformly spaced in [0, 1].
-        input_dim: Number of input channels (3: value, Go cue, bias).
-        output_dim: Number of output channels (1).
-        mask_periods: Time intervals where the loss is evaluated.
-        seed: Optional random seed (kept for API consistency; task is deterministic).
+class GoNogoTask(Task):
+    """Go/NoGo task (unified Task interface; deterministic)."""
 
-    Returns:
-        inputs: (n_trials, n_steps, input_dim) tensor.
-        targets: (n_trials, n_steps, output_dim) tensor.
-        mask: (n_trials, n_steps, output_dim) tensor — 1 at evaluated time steps.
-        conditions: list of dicts with keys ``input_value`` and ``output_value``.
-    """
-    if seed is not None:
-        np.random.seed(seed)
+    name = "go_nogo"
+    input_dim = 3
+    output_dim = 1
+    default_dt = None
 
-    values = np.linspace(0, 1, n_values)
-    n_trials = len(values)
+    def __init__(self, *, n_steps=60, stim_on=0, stim_off=60, cue_on=30, cue_off=60,
+                 n_values=11, n_reps=1, input_dim=3, output_dim=1,
+                 mask_periods=((10, 30), (40, 60)), seed=None):
+        self.n_steps = n_steps
+        self.stim_on = stim_on
+        self.stim_off = stim_off
+        self.cue_on = cue_on
+        self.cue_off = cue_off
+        self.n_values = n_values
+        self.n_reps = n_reps  # repetitions per value (total trials = n_values * n_reps)
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.mask_periods = tuple(mask_periods)
+        self.seed = seed
 
-    inputs = np.zeros((n_trials, n_steps, input_dim), dtype=np.float32)
-    targets = np.zeros((n_trials, n_steps, output_dim), dtype=np.float32)
-    conditions = []
+    @property
+    def n_trials(self):
+        return int(self.n_values * self.n_reps)
 
-    for i, value in enumerate(values):
-        inputs[i, stim_on:stim_off, 0] = value
-        inputs[i, cue_on:cue_off, 1] = 1.0
-        inputs[i, :, 2] = 1.0
+    def generate_trials(self):
+        """Generate Go/NoGo trials -> (inputs, targets, mask, conditions)."""
+        self._seed_np()  # task is deterministic; kept for API consistency
 
-        if value < 0.5:
-            output_value = 0.0
-        elif value > 0.5:
-            output_value = 1.0
-        else:
-            output_value = 0.5
+        values = np.linspace(0, 1, self.n_values)
+        n_trials = self.n_trials
+        n_steps = self.n_steps
 
-        targets[i, cue_on:cue_off, 0] = output_value
-        conditions.append({"input_value": float(value), "output_value": float(output_value)})
+        inputs = np.zeros((n_trials, n_steps, self.input_dim), dtype=np.float32)
+        targets = np.zeros((n_trials, n_steps, self.output_dim), dtype=np.float32)
+        conditions = []
 
-    mask = torch.zeros((n_trials, n_steps, output_dim), dtype=torch.float32)
-    for start, end in mask_periods:
-        mask[:, start:end, :] = 1.0
+        epochs = {
+            "stimulus": (self.stim_on, self.stim_off),
+            "cue": (self.cue_on, self.cue_off),
+        }
 
-    return (
-        torch.from_numpy(inputs).float(),
-        torch.from_numpy(targets).float(),
-        mask,
-        conditions,
-    )
+        i = 0
+        for _ in range(self.n_reps):
+            for value in values:
+                inputs[i, self.stim_on:self.stim_off, 0] = value
+                inputs[i, self.cue_on:self.cue_off, 1] = 1.0
+                inputs[i, :, 2] = 1.0
+
+                if value < 0.5:
+                    output_value = 0.0
+                elif value > 0.5:
+                    output_value = 1.0
+                else:
+                    output_value = 0.5
+
+                targets[i, self.cue_on:self.cue_off, 0] = output_value
+                conditions.append(self._cond(
+                    epochs, n_steps, False,
+                    input_value=float(value), output_value=float(output_value),
+                ))
+                i += 1
+
+        mask = torch.zeros((n_trials, n_steps, self.output_dim), dtype=torch.float32)
+        for start, end in self.mask_periods:
+            mask[:, start:end, :] = 1.0
+
+        return (
+            torch.from_numpy(inputs).float(),
+            torch.from_numpy(targets).float(),
+            mask,
+            conditions,
+        )
+
+
+def generate_trials(**kwargs):
+    """Backward-compatible shim: GoNogoTask(**kwargs).generate_trials()."""
+    return GoNogoTask.from_kwargs(**kwargs).generate_trials()

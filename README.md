@@ -4,7 +4,7 @@
 
 **NeuralRNN is A unified framework for implementing RNN methods in cognitive neuroscience** — bringing two major paradigms under a single [Transformers](https://github.com/huggingface/transformers)-style interface:
 
-- **Paradigm A: Task-Based Optimization (TBO)**[^1]: Train RNNs on cognitive tasks, then reverse-engineer how they perform computation using analyses including fixed points, vector fields, dimensionality reduction, etc. The goal is to use RNNs as a proxy for cognitive computation.
+- **Paradigm A: Task Optimization**[^1]: Train RNNs on cognitive tasks, then reverse-engineer how they perform computation using analyses including fixed points, vector fields, dimensionality reduction, etc. The goal is to use RNNs as a proxy for cognitive computation.
 - **Paradigm B: Dynamical System Reconstruction (DSR)**[^2][^3]: Fit generative RNNs directly from neural/behavioral time series that can reproduce attractors, power spectra, and Lyapunov spectra of the target system.
 
 Both paradigms share a unified set of `model config`, `Trainer`, and `analysis` tools. **The only difference between the two paradigms is the `Objective`**: Paradigm A aims to optimize output for cognitive task performance, while Paradigm B aims to construct a dynamical system isomorphic to the target neural activity. Moreover, DSR can also be applied to reconstruct the dynamics of TBO-trained models for interpretability analysis[^4].
@@ -26,7 +26,7 @@ NeuralRNN provides an interface to automatically connect the model to the unifie
 
 ## What NeuralRNN contains and not
 
-NeuralRNN contains the pipeline to model RNN for neuroscience research, including (1) constructing dataset, (2) building and configuring RNN models, (3) training, (4) model analysis, and (5) **selective layer freezing for echo-state / reservoir-computing style training** (see the full pipeline in **[`custom pipeline`](notebook/03_custom_pipeline.ipynb)**  and the documents in **[`docs`](docs/README.md)**). We also provide the guide to implement each built-in model through this framework (see **[`notebook`](notebook/README.md)**).
+NeuralRNN contains the pipeline to model RNN for neuroscience research, including (1) constructing dataset, (2) building and configuring RNN models, (3) training, and (4) model analysis (see the full pipeline in **[`custom pipeline`](notebook/03_custom_pipeline.ipynb)**  and the documents in **[`docs`](docs/README.md)**). We also provide the guide to implement each built-in model through this framework (see **[`notebook`](notebook/README.md)**).
 
 However, there are others methods using dynamical system methods as well, including [MARBLE](https://www.nature.com/articles/s41592-024-02582-2), [FINDR](https://www.nature.com/articles/s41586-025-09528-4), [neuralflow](https://www.nature.com/articles/s41586-025-09199-1), and [SSMLearn](https://arxiv.org/abs/2510.13519). These model-agnostic methods aim to inference interpretable representations of neural population dynamics exactly from the neural response, which are not included in NeuralRNN but can be suitably combined for the further analysis of RNN models.
 
@@ -90,7 +90,7 @@ notebook/                  # end-to-end tutorials for each paper
 |---|---|---|
 | continuous time RNN | A | ✅ |
 | E-I RNN (Dale's principle) | A | ✅ |
-| Latent Circuit | B | ✅ |
+| Latent Circuit Model | B | ✅ |
 | piecewise linear RNN | B | ✅ |
 | Tiny RNN | B | ✅ |
 | low-rank RNN | AB | ✅ |
@@ -100,18 +100,11 @@ notebook/                  # end-to-end tutorials for each paper
 | gain RNN | AB | ✅ |
 | STP RNN | A | ✅ |
 
+The second column shows the corresponding paradigm used in the original work.  
+
 ## Porting New Papers into the Framework
 
-See [docs/PORTING_GUIDE.md](docs/PORTING_GUIDE.md) for the complete AI-assisted porting manual: four adapter contracts, the universal 8-step workflow with hard rules, per-paper recipes for 8 papers, copy-paste-ready AI prompt templates, a porting kanban board, and a table of common pitfalls.
-
 Core principle: **Porting = writing adapters (wrapping + verification), not rewriting mathematics**. Any model that implements `recurrence/readout` is plug-and-play; the analysis layer works only through the model's public contract and never imports specific model classes.
-
-## Design Docs
-
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — overall design and architecture (**read first**)
-- [docs/PORTING_GUIDE.md](docs/PORTING_GUIDE.md) — AI-assisted porting manual
-- [docs/theory/dynamical_systems.md](docs/theory/dynamical_systems.md) — unified mathematical perspective
-- [docs/papers/](docs/papers/) — per-paper method notes
 
 ## License
 

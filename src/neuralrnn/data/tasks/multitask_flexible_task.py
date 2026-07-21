@@ -802,3 +802,51 @@ def generate_trials(rule, n_trials=64, mode="random", sigma_x=0.01, **kwargs):
     conditions = _build_conditions(trial, rule)
 
     return inputs, targets, mask, conditions
+
+
+# ---------------------------------------------------------------------------
+# Unified Task-class interface (data-layer refactor; the module-level
+# generate_trials above is unchanged and remains the legacy numpy shim).
+# ---------------------------------------------------------------------------
+from .task_base import Task  # noqa: E402
+
+
+class MultitaskFlexibleTask(Task):
+    """Driscoll et al. (2024) 15-task generator (unified Task interface).
+
+    Same engine as the module-level ``generate_trials``; returns torch tensors
+    and adds the unified condition keys (``n_steps`` / ``is_catch``).
+    """
+
+    name = "multitask_flexible"
+    input_dim = 20
+    output_dim = 3
+    default_dt = 20.0
+    deprecated_kwargs = {"sigma_x": "sigma_in"}
+    rules = tuple(RULE_MAPPING.keys())
+
+    def __init__(self, rule, n_trials=64, *, mode="random", sigma_in=0.01,
+                 seed=None, **kwargs):
+        if rule not in RULE_MAPPING:
+            raise ValueError("Unknown rule: {}. Supported rules: {}".format(
+                rule, list(RULE_MAPPING.keys())))
+        self.rule = rule
+        self.n_trials = n_trials
+        self.mode = mode
+        self.sigma_in = sigma_in
+        self.seed = seed
+        self.kwargs = kwargs
+
+    def generate_trials(self):
+        import torch
+        inputs, targets, mask, conditions = generate_trials(
+            self.rule, n_trials=self.n_trials, mode=self.mode,
+            sigma_x=self.sigma_in, seed=self.seed, **self.kwargs)
+        conditions = [
+            {**c, "n_steps": int(inputs.shape[1]), "is_catch": False}
+            for c in conditions
+        ]
+        return (
+            torch.as_tensor(inputs), torch.as_tensor(targets),
+            torch.as_tensor(mask), conditions,
+        )

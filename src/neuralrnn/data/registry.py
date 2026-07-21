@@ -110,10 +110,15 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
         loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
         extra={"task_name": "dms"},
     ),
+    "mante2": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "mante2"},
+    ),
     "lr_mante": DatasetSpec(
         kind="cognitive_task",
         loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
-        extra={"task_name": "lr_mante"},
+        extra={"task_name": "lr_mante"},  # deprecated alias of mante2 (warns)
     ),
     "go_nogo": DatasetSpec(
         kind="cognitive_task",

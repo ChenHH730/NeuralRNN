@@ -10,10 +10,29 @@ then reuse one of the four dataset classes below and register the URL in data/re
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Iterator
 
 import torch
 from torch.utils.data import Dataset
+
+
+@dataclass
+class Trials:
+    """A small set of complete trials (returned by ``BaseDataset.sample_trials``).
+
+    Same field layout as a trial-aligned dataset: ``inputs`` / ``targets`` /
+    ``mask`` are zero-padded tensors and ``conditions`` is a list of per-trial
+    dicts (with the unified ``epochs`` / ``n_steps`` / ``is_catch`` keys).
+    """
+
+    inputs: torch.Tensor
+    targets: torch.Tensor
+    mask: torch.Tensor | None
+    conditions: list
+
+    def __len__(self) -> int:
+        return len(self.conditions)
 
 
 class BaseDataset(Dataset):
@@ -31,10 +50,40 @@ class BaseDataset(Dataset):
         """Randomly sample a batch. Default uses __getitem__ + simple stacking; DSR subclasses override."""
         raise NotImplementedError
 
+    def sample_trials(self, n: int, seed: int | None = None) -> Trials:
+        """Return n complete trials as a ``Trials`` object (for visualization/analysis
+        without creating a second dataset). Implemented by trial-capable subclasses."""
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support sample_trials()."
+        )
+
     def __iter__(self) -> Iterator[dict]:
         # Make next(iter(ds)) available: default infinite random batches (DSR style)
         while True:
             yield self.sample_batch()
+
+
+def subset_trials(inputs: torch.Tensor, targets: torch.Tensor, mask: torch.Tensor | None,
+                  conditions: list, n: int, seed: int | None = None) -> Trials:
+    """Select n trials from trial-aligned tensors -> Trials.
+
+    seed=None takes the first n trials (deterministic); with a seed, draws a
+    seeded random subset (without replacement when n <= N, else with).
+    """
+    n_total = inputs.shape[0]
+    if seed is None:
+        idx = torch.arange(min(n, n_total))
+    else:
+        g = torch.Generator().manual_seed(seed)
+        if n <= n_total:
+            idx = torch.randperm(n_total, generator=g)[:n]
+        else:
+            idx = torch.randint(0, n_total, (n,), generator=g)
+    return Trials(
+        inputs[idx], targets[idx],
+        mask[idx] if mask is not None else None,
+        [conditions[i] for i in idx.tolist()],
+    )
 
 
 class StandardScaler:

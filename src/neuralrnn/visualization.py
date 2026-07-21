@@ -973,3 +973,108 @@ def plot_trial_predictions(
 
     fig.tight_layout()
     return fig, axes
+
+
+# =========================================================================
+# Task trial visualization
+# =========================================================================
+_EPOCH_COLORS = ("#f4c7c3", "#c7dbf4", "#d6ecc7", "#f4ecc7", "#e3c7f4", "#c7f4ec")
+
+_SKIP_COND_KEYS = {"epochs", "n_steps", "is_catch"}
+
+
+def _cond_title(cond: dict) -> str:
+    """Compact one-line summary of a trial condition dict."""
+    parts = []
+    for k, v in cond.items():
+        if k in _SKIP_COND_KEYS or isinstance(v, (dict, list, tuple)):
+            continue
+        if isinstance(v, float):
+            parts.append(f"{k}={v:.3g}")
+        else:
+            parts.append(f"{k}={v}")
+    if cond.get("is_catch"):
+        parts.append("CATCH")
+    return ", ".join(parts)
+
+
+def plot_trials(data, n: int | None = None, dt: float | None = None, *,
+                show_epochs: bool = False, show_legend: bool = True,
+                figsize: tuple | None = None, title: str | None = None):
+    """Plot example trials (inputs + targets per trial) with epoch shading.
+
+    Accepts a ``Trials`` object (e.g. from ``dataset.sample_trials(n)``), a
+    trial-aligned dataset (``inputs``/``targets``/``conditions`` attributes),
+    or a dict with ``"inputs"``/``"targets"``/``"conditions"`` keys.
+
+    Args:
+        data: Trials / dataset / dict as described above.
+        n: number of trials to show (default: min(4, available)).
+        dt: time step in ms; when given, the x-axis is in seconds.
+        show_epochs: shade epoch spans from ``conditions[i]["epochs"]``.
+        show_legend: show channel legend on the first subplot.
+        figsize: figure size (default: (10, 2.4 * n)).
+        title: optional figure suptitle.
+
+    Returns:
+        (fig, axes)
+    """
+    if hasattr(data, "inputs") and hasattr(data, "conditions"):
+        inputs, targets, conditions = data.inputs, data.targets, data.conditions
+    elif isinstance(data, dict):
+        inputs, targets, conditions = data["inputs"], data["targets"], data["conditions"]
+    else:
+        raise TypeError(
+            "plot_trials expects a Trials object, a trial-aligned dataset, or a dict "
+            "with 'inputs'/'targets'/'conditions' keys."
+        )
+    inputs = np.asarray(inputs, dtype=float)
+    targets = np.asarray(targets, dtype=float)
+
+    n_total = inputs.shape[0]
+    n = min(n, n_total) if n is not None else min(4, n_total)
+    if figsize is None:
+        figsize = (10, max(2.4 * n, 2.4))
+    fig, axes = plt.subplots(n, 1, figsize=figsize, sharex=True, sharey=True, squeeze=False)
+    axes = axes[:, 0]
+
+    for row in range(n):
+        ax = axes[row]
+        cond = conditions[row] if row < len(conditions) else {}
+        n_steps = int(cond.get("n_steps", inputs.shape[1]))
+        inp = inputs[row, :n_steps]
+        tgt = targets[row, :n_steps]
+        t = np.arange(n_steps) * (dt / 1000.0 if dt else 1.0)
+
+        if show_epochs and isinstance(cond.get("epochs"), dict):
+            for k, (phase, bounds) in enumerate(cond["epochs"].items()):
+                if bounds is None or bounds[0] is None or bounds[1] is None:
+                    continue
+                x0 = bounds[0] * (dt / 1000.0 if dt else 1.0)
+                x1 = bounds[1] * (dt / 1000.0 if dt else 1.0)
+                ax.axvspan(x0, x1, color=_EPOCH_COLORS[k % len(_EPOCH_COLORS)],
+                           alpha=0.35, lw=0)
+                ax.text((x0 + x1) / 2, 1.02, phase, transform=ax.get_xaxis_transform(),
+                        ha="center", va="bottom", fontsize=10, color="0.35")
+
+        for ch in range(inp.shape[-1]):
+            ax.plot(t, inp[:, ch], lw=0.9, label=f"in{ch}")
+        if tgt.ndim == 1:
+            ax.step(t, tgt, where="post", color="k", lw=1.2, ls="--", label="target")
+        else:
+            for ch in range(tgt.shape[-1]):
+                ax.step(t, tgt[:, ch], where="post", lw=1.2, ls="--", label=f"target{ch}")
+
+        ax.set_ylabel("value", fontsize=10)
+        cond_title = _cond_title(cond)
+        if cond_title:
+            ax.set_title(f"trial {row}: {cond_title}", fontsize=10, loc="left")
+        ax.tick_params(labelsize=10)
+        if show_legend and row == 0:
+            ax.legend(fontsize=10, ncol=4, loc="upper right")
+
+    axes[-1].set_xlabel("time (s)" if dt else "time (steps)", fontsize=10)
+    if title:
+        fig.suptitle(title, fontsize=12)
+    fig.tight_layout()
+    return fig, axes

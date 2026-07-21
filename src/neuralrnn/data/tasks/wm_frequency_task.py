@@ -8,7 +8,8 @@ Task family: parametric working memory / delayed comparison.
 Inputs:  1 channel (normalized frequency value).
 Targets: 1 channel (signed comparison (f1 - f2) / span).
 
-Timing (ms): fixation=100, stim1=100, delay=500-1000, stim2=100, decision=100.
+Timing (ms, at default dt=20): fixation=100, stim1=100, delay=500-1000,
+stim2=100, decision=100.
 
 References:
     Romo et al. (1999), Nature.
@@ -17,6 +18,8 @@ References:
 import numpy as np
 import torch
 
+from .task_base import Task
+
 DELTA_T = 20.0
 FIXATION_DURATION = 100
 STIM1_DURATION = 100
@@ -24,6 +27,7 @@ DELAY_MIN = 500
 DELAY_MAX = 1000
 STIM2_DURATION = 100
 DECISION_DURATION = 100
+STD_DEFAULT = 0.01
 
 # Frequency pairs used in the task
 FDIFFS = [-24, -16, -8, 8, 16, 24]
@@ -35,82 +39,91 @@ FMIDDLE = (FMAX + FMIN) / 2.0
 FSPAN = FMAX - FMIN
 
 
-def _setup():
-    """Compute discrete timing variables."""
-    global fixation_discrete, stim1_discrete, stim1_end
-    global stim2_discrete, decision_discrete
-    global min_delay_discrete, max_delay_discrete, total_duration
+class WMFrequencyTask(Task):
+    """Romo frequency-comparison working-memory task (unified interface)."""
 
-    fixation_discrete = int(FIXATION_DURATION / DELTA_T)
-    stim1_discrete = int(STIM1_DURATION / DELTA_T)
-    stim1_end = fixation_discrete + stim1_discrete
-    stim2_discrete = int(STIM2_DURATION / DELTA_T)
-    decision_discrete = int(DECISION_DURATION / DELTA_T)
-    min_delay_discrete = int(DELAY_MIN / DELTA_T)
-    max_delay_discrete = int(DELAY_MAX / DELTA_T)
-    total_duration = (fixation_discrete + stim1_discrete +
-                      max_delay_discrete + stim2_discrete + decision_discrete)
+    name = "wm_frequency"
+    aliases = ("romo",)
+    input_dim = 1
+    output_dim = 1
+    default_dt = DELTA_T
+    deprecated_kwargs = {
+        "num_trials": "n_trials",
+        "std": "sigma_in",
+        "fraction_catch_trials": "catch_fraction",
+    }
 
+    def __init__(self, n_trials=1000, *, sigma_in=STD_DEFAULT, fpairs=None,
+                 catch_fraction=0.0, delay_discrete=None, seed=None, dt=DELTA_T):
+        self.n_trials = n_trials
+        self.sigma_in = sigma_in
+        self.fpairs = FPAIRS if fpairs is None else fpairs
+        self.catch_fraction = catch_fraction
+        self.delay_discrete = delay_discrete
+        self.seed = seed
+        self.dt = dt
+        # Discrete timing (previously module-level globals via _setup())
+        self.fixation_discrete = int(FIXATION_DURATION / dt)
+        self.stim1_discrete = int(STIM1_DURATION / dt)
+        self.stim1_end = self.fixation_discrete + self.stim1_discrete
+        self.stim2_discrete = int(STIM2_DURATION / dt)
+        self.decision_discrete = int(DECISION_DURATION / dt)
+        self.min_delay_discrete = int(DELAY_MIN / dt)
+        self.max_delay_discrete = int(DELAY_MAX / dt)
+        self.total_duration = (self.fixation_discrete + self.stim1_discrete
+                               + self.max_delay_discrete + self.stim2_discrete
+                               + self.decision_discrete)
 
-_setup()
+    def generate_trials(self):
+        """Generate trials -> (inputs, targets, mask, conditions)."""
+        self._seed_np()
+        n = self.n_trials
+        fpairs = self.fpairs
 
+        inputs = self.sigma_in * torch.randn((n, self.total_duration, 1))
+        targets = torch.zeros((n, self.total_duration, 1), dtype=torch.float32)
+        mask = torch.zeros((n, self.total_duration, 1), dtype=torch.float32)
+        conditions = []
 
-def generate_trials(
-    num_trials: int = 1000,
-    std: float = 0.01,
-    fpairs: list | None = None,
-    fraction_catch_trials: float = 0.0,
-    delay_discrete: int | None = None,
-    seed: int | None = None,
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, list]:
-    """Generate parametric working memory trials.
+        for i in range(n):
+            if np.random.rand() > self.catch_fraction:
+                f1, f2 = fpairs[np.random.randint(0, len(fpairs))]
 
-    Args:
-        num_trials: Number of trials.
-        std: Input noise standard deviation.
-        fpairs: List of (f1, f2) frequency pairs. Defaults to all valid pairs.
-        fraction_catch_trials: Fraction of catch trials.
-        delay_discrete: Fixed delay duration in discrete steps (default: random).
-        seed: Random seed.
+                if self.delay_discrete is None:
+                    delay = np.random.randint(self.min_delay_discrete, self.max_delay_discrete + 1)
+                else:
+                    delay = self.delay_discrete
 
-    Returns:
-        inputs:  (N, total_duration, 1) tensor
-        targets: (N, total_duration, 1) tensor
-        mask:    (N, total_duration, 1) tensor
-        conditions: list of dicts
-    """
-    if seed is not None:
-        np.random.seed(seed)
+                stim2_begin = self.stim1_end + delay
+                stim2_end = stim2_begin + self.stim2_discrete
+                decision_end = stim2_end + self.decision_discrete
 
-    if fpairs is None:
-        fpairs = FPAIRS
+                # Normalize frequencies to [-0.5, 0.5] range
+                inputs[i, self.fixation_discrete:self.stim1_end] += (f1 - FMIDDLE) / FSPAN
+                inputs[i, stim2_begin:stim2_end] += (f2 - FMIDDLE) / FSPAN
+                targets[i, stim2_end:decision_end, 0] = (f1 - f2) / FSPAN
+                mask[i, stim2_end:decision_end, 0] = 1.0
 
-    inputs = std * torch.randn((num_trials, total_duration, 1))
-    targets = torch.zeros((num_trials, total_duration, 1), dtype=torch.float32)
-    mask = torch.zeros((num_trials, total_duration, 1), dtype=torch.float32)
-    conditions = []
-
-    for i in range(num_trials):
-        if np.random.rand() > fraction_catch_trials:
-            f1, f2 = fpairs[np.random.randint(0, len(fpairs))]
-
-            if delay_discrete is None:
-                delay = np.random.randint(min_delay_discrete, max_delay_discrete + 1)
+                epochs = {
+                    "fixation": (0, self.fixation_discrete),
+                    "stim1": (self.fixation_discrete, self.stim1_end),
+                    "delay": (self.stim1_end, stim2_begin),
+                    "stim2": (stim2_begin, stim2_end),
+                    "decision": (stim2_end, decision_end),
+                }
+                conditions.append(self._cond(
+                    epochs, self.total_duration, False,
+                    f1=f1, f2=f2, delay=delay,
+                ))
             else:
-                delay = delay_discrete
+                conditions.append(self._cond(
+                    {"fixation": (0, self.fixation_discrete)}, self.total_duration, True,
+                    f1=0.0, f2=0.0, delay=0,
+                ))
 
-            stim2_begin = stim1_end + delay
-            stim2_end = stim2_begin + stim2_discrete
-            decision_end = stim2_end + decision_discrete
+        return inputs, targets, mask, conditions
 
-            # Normalize frequencies to [-0.5, 0.5] range
-            inputs[i, fixation_discrete:stim1_end] += (f1 - FMIDDLE) / FSPAN
-            inputs[i, stim2_begin:stim2_end] += (f2 - FMIDDLE) / FSPAN
-            targets[i, stim2_end:decision_end, 0] = (f1 - f2) / FSPAN
-            mask[i, stim2_end:decision_end, 0] = 1.0
 
-            conditions.append({"f1": f1, "f2": f2, "delay": delay})
-        else:
-            conditions.append({"f1": 0.0, "f2": 0.0, "delay": 0, "is_catch": True})
-
-    return inputs, targets, mask, conditions
+def generate_trials(**kwargs):
+    """Backward-compatible shim: WMFrequencyTask(**kwargs).generate_trials()."""
+    return WMFrequencyTask.from_kwargs(**kwargs).generate_trials()

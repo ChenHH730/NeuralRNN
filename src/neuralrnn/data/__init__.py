@@ -1,5 +1,5 @@
 """Data layer: unified batch format, dataset classes, open-dataset registry and download cache."""
-from .base import BaseDataset, StandardScaler
+from .base import BaseDataset, StandardScaler, Trials
 from .timeseries_dataset import TimeSeriesDataset
 from .custom_dataset import CustomDataset
 from .cognitive_task_dataset import CognitiveTaskDataset
@@ -9,7 +9,7 @@ from .registry import DATASET_REGISTRY, DatasetSpec, load_dataset
 from .trial_dataset import TrialTimeseriesDataset
 
 __all__ = [
-    "BaseDataset", "StandardScaler",
+    "BaseDataset", "StandardScaler", "Trials",
     "TimeSeriesDataset",
     "TrialTimeseriesDataset",
     "CustomDataset",
