@@ -1393,26 +1393,79 @@ class TimeSeriesDataset(BaseDataset):
 
 For Paradigm A (task-optimized RNN). Wraps `neurogym.Dataset` to produce standard batch dicts. Optional dependency: `pip install 'neuralrnn[neurogym]'`.
 
+Compatible with both old (1.x, gym) and new (2.x, gymnasium) neurogym — tested with 1.0.8 and 2.3.1. The environment is always built as an **unwrapped** `TrialEnv` and exposed as `self.env`, so analysis code (`env.new_trial()`, `env.ob/gt/dt/trial/start_ind/end_ind`) works directly without gymnasium wrapper-attribute deprecation warnings.
+
 ```python
 class NeurogymDataset(BaseDataset):
     kind = "neurogym"
 
     def __init__(self, env, dataset, input_dim, output_dim,
-                 batch_size=16, seq_len=100) -> None: ...
+                 batch_size=16, seq_len=100, output_type="discrete") -> None: ...
+        # output_type: "discrete" (integer class targets for CrossEntropy, from a
+        # Discrete action space) or "continuous" (float targets (B,T,act_dim),
+        # from a Box action space, e.g. ReachingDelayResponse-v0)
+        # dt attribute: env dt in ms (both modes)
 
     @classmethod
     def from_task(cls, task: str, *, batch_size=16, seq_len=100,
-                  dt=100, timing=None, **env_kwargs) -> "NeurogymDataset":
+                  dt=100, timing=None, seed=None, n_trials=None, **env_kwargs) -> "NeurogymDataset":
         """Construct from a neurogym task name.
         Example: NeurogymDataset.from_task("PerceptualDecisionMaking-v0", dt=100)
+        task accepts the exact env id, the bare class name ('-v0' appended), or a
+        case-insensitive match. seed makes trial generation reproducible.
+        Extra env_kwargs are forwarded to the env constructor.
+        n_trials=None -> streaming mode; n_trials=N -> trial-aligned mode (below).
         """
 
     def sample_batch(self) -> dict[str, Tensor]:
-        """Returns {"inputs": (B,T,input_dim), "targets": (B,T), "mask": None}"""
+        """Streaming: {"inputs": (B,T,input_dim), "targets": (B,T) long, "mask": None}
+        (continuous: targets (B,T,act_dim) float32).
+        Trial-aligned: whole random trials, {"inputs", "targets", "mask"} like
+        CognitiveTaskDataset."""
+
+    def get_all_trials(self) -> dict[str, Tensor]:   # trial-aligned mode only
+        """Returns {"inputs", "targets", "mask"} for all pre-generated trials."""
+
+    def __len__(self) -> int:                        # trial-aligned mode only (= n_trials)
 
     def task_input(self, kind="stimulus") -> Tensor:
         """Return the task-condition input for fixed-point analysis (e.g. 0-coherence mean)."""
 ```
+
+**Trial-aligned mode** (`n_trials=N`): pre-generates N complete trials from the env and exposes the same interface as `CognitiveTaskDataset`, so downstream analysis code is identical across neurogym and built-in tasks:
+
+- `inputs` (N, T_max, input_dim) float32 — shorter trials zero-padded to the longest
+- `targets` (N, T_max) long (discrete) / (N, T_max, act_dim) float32 (continuous)
+- `mask` (N, T_max) float — 1 for valid steps, 0 for padding (directly usable with `masked_cross_entropy` / `masked_mse` for training)
+- `conditions` — list of N flat per-trial dicts: the native neurogym trial info (e.g. `coh`, `ground_truth`, `v1`, `v2`) plus unified extras `epochs` ({period: (start, end)}, from the env's `start_ind`/`end_ind`) and `n_steps` (true unpadded trial length)
+- `get_all_trials()` / `__len__` / whole-trial `sample_batch()` as in `CognitiveTaskDataset`
+
+```python
+ds = load_dataset("perceptual_decision_making", n_trials=500, dt=100, seed=0)
+out = model(ds.inputs)                       # batched forward over all trials
+cond = ds.conditions[0]                      # {'ground_truth': 0, 'coh': 25.6,
+                                             #  'epochs': {'stimulus': (1, 21), ...}, 'n_steps': 22}
+```
+
+Module-level helpers:
+
+```python
+list_neurogym_datasets() -> list[str]   # env ids registered by the installed neurogym ([])
+neurogym_version() -> str | None        # installed neurogym version
+```
+
+Any registered neurogym env id can be loaded directly through `load_dataset` (dynamic passthrough — registered dataset names win, so built-in `go_nogo` is never shadowed; use `GoNogo-v0` for neurogym's):
+
+```python
+ds = load_dataset("GoNogo-v0", batch_size=16, seq_len=100)      # case-insensitive, '-v0' optional
+ds = load_dataset("yang19.dms-v0")                              # neurogym 2.x collections included
+ds = load_dataset("AnnubesEnv-v0", session={"v": 1.0}, catch_prob=0.5)  # env-specific kwargs
+ds = load_dataset("ToneDetection-v0", dt=10)                    # dt must fit tone duration
+```
+
+Notes:
+- All envs that work with upstream `ngym.Dataset` load successfully (verified against the full 2.3.1 registry). The RL-only envs `Bandit-v0`, `DawTwoStep-v0`, `EconomicDecisionMaking-v0`, `Null-v0` expose no `ob`/`gt` and fail in upstream `ngym.Dataset` itself, so they cannot be used as supervised datasets.
+- Batches are fixed `seq_len` windows sliced from a trial stream and may cross trial boundaries (no trial alignment or loss mask; `mask=None`). Per-trial metadata is available by driving `ds.env` manually.
 
 ### `TrialTimeseriesDataset`
 
@@ -1647,7 +1700,10 @@ DATASET_REGISTRY: dict[str, DatasetSpec]  # Global registry
 
 def load_dataset(name: str, **overrides):
     """Unified entry: lookup registry -> download/cache -> instantiate dataset.
-    overrides are passed through to the loader (e.g. sequence_length, batch_size)."""
+    overrides are passed through to the loader (e.g. sequence_length, batch_size).
+    Names not in the registry fall through to neurogym: any env id from the installed
+    neurogym (e.g. 'GoNogo-v0', case-insensitive, '-v0' optional) loads as a
+    NeurogymDataset. See neuralrnn.data.list_neurogym_datasets()."""
 ```
 
 **Built-in registered datasets**:
@@ -1697,10 +1753,13 @@ class TrainingArguments:
     warmup_steps: int = 0
 
     # Logging / evaluation / checkpointing
-    log_every: int = 50
+    log_every: int = 50                   # Also drives curve-figure/history-file updates; 0 disables file logging
     eval_every: int | None = None         # None = no eval during training
     save_every: int | None = None
-    output_dir: str = "./outputs"
+    # Log artifacts (curve figure + history files) go directly into output_dir;
+    # None → checkpoints fall back to "./outputs", logs to "./temp/log"
+    output_dir: str | None = None
+    disable_progress_bar: bool = False    # True to silence the tqdm progress bar
     device: str = "cpu"                   # "cpu" / "cuda" / "cuda:0"
     seed: int = 0
 
@@ -1764,6 +1823,19 @@ class Trainer:
 4. Backward + optional gradient clipping
 5. Optimizer step + optional LR scheduler
 6. Periodic logging, evaluation, checkpointing
+
+**Progress display & log artifacts**:
+
+- A single `tqdm` progress bar shows `loss` / `acc` (and any other log keys) in its
+  postfix; `eval_fn` metrics appear as `eval/<key>` and persist between evals
+  (the last computed value is shown until the next eval).
+- Every `log_every` steps (and at every eval) the trainer updates
+  `training_curves.png` in `output_dir` (`./temp/log` when `output_dir` is not set):
+  x-axis = step, left y-axis = loss (log scale), right y-axis = other train metrics
+  and `eval/*` metrics (eval points drawn at their eval steps).
+- The same directory holds `history.jsonl` (one JSON record per log/eval event,
+  eval records carry `"eval": true`) and, at the end of training, `history.json`
+  (full history). `log_every=0` disables all file logging; no files are created then.
 
 ### Objectives
 

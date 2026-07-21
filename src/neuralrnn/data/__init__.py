@@ -24,4 +24,7 @@ def __getattr__(name):
     if name == "NeurogymDataset":
         from .neurogym_dataset import NeurogymDataset
         return NeurogymDataset
+    if name in ("list_neurogym_datasets", "neurogym_version"):
+        from . import neurogym_dataset
+        return getattr(neurogym_dataset, name)
     raise AttributeError(name)

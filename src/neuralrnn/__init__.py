@@ -33,7 +33,7 @@ See docs/ARCHITECTURE.md and docs/PORTING_GUIDE.md for details.
 """
 from __future__ import annotations
 
-__version__ = "0.2.7.dev0"
+__version__ = "0.3.2.dev0"
 
 # Core base classes / output container
 from .configuration_utils import (

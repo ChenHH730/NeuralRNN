@@ -19,10 +19,13 @@ Design notes:
 """
 from __future__ import annotations
 
+import json
+import numbers
 import os
 from typing import Callable
 
 import torch
+from tqdm.auto import tqdm
 
 from .training_args import TrainingArguments
 from .objectives.base import Objective
@@ -62,6 +65,17 @@ class Trainer:
         self.eval_fn = eval_fn               # optional: returns an evaluation metric dict (e.g. D_stsp/D_H)
         self.post_step_hook = post_step_hook  # optional: called after each gradient update (e.g., constraint projection)
         self.history: list[dict] = []
+
+        # Checkpoint dir: explicit output_dir, else "./outputs"
+        self.output_dir = self.args.output_dir or "./outputs"
+        # Log artifacts (curve figure + history files) go directly into output_dir;
+        # "./temp/log" when no output dir is specified
+        self.log_dir = self.args.output_dir or os.path.join(".", "temp", "log")
+
+        self._pbar = None                    # active tqdm bar (None when not training)
+        self._last_eval: dict = {}           # last eval_fn metrics (shown in postfix between evals)
+        self._eval_history: list[dict] = []  # [{"step": ..., **metrics}] for the curve figure
+        self._log_file_ready = False
 
         torch.manual_seed(self.args.seed)
         self.device = torch.device(self.args.device)
@@ -118,120 +132,227 @@ class Trainer:
         alpha = self.args.forcing_start + frac * (self.args.forcing_end - self.args.forcing_start)
         self.objective.set_forcing(alpha)
 
+    # ---- Progress display & log artifacts ----
+    def _emit(self, msg: str) -> None:
+        """Print a rare event (early stop etc.) without breaking the progress bar."""
+        if self._pbar is not None:
+            self._pbar.write(msg)
+        else:
+            print(msg)
+
+    def _postfix(self, logs: dict) -> dict:
+        """Progress-bar postfix: train metrics from this step + last eval metrics."""
+        pf = {}
+        for k, v in logs.items():
+            if k == "step":
+                continue
+            pf[k] = f"{v:.4f}" if isinstance(v, float) else v
+        for k, v in self._last_eval.items():
+            if isinstance(v, float):
+                pf[f"eval/{k}"] = f"{v:.4f}"
+        return pf
+
+    @staticmethod
+    def _jsonable(d: dict) -> dict:
+        return {k: (float(v) if isinstance(v, numbers.Real) else str(v)) for k, v in d.items()}
+
+    def _write_log_line(self, record: dict) -> None:
+        """Append one JSON line to <log_dir>/history.jsonl."""
+        os.makedirs(self.log_dir, exist_ok=True)
+        self._log_file_ready = True
+        with open(os.path.join(self.log_dir, "history.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(self._jsonable(record)) + "\n")
+
+    def _update_plot(self) -> None:
+        """Redraw the training curve figure into <log_dir>/training_curves.png.
+
+        Left y-axis: loss (log scale); right y-axis: any other numeric train metrics
+        (e.g. accuracy) and eval_fn metrics (plotted at their eval steps).
+        """
+        if not self.history:
+            return
+        import matplotlib.pyplot as plt
+
+        with plt.rc_context({"font.size": plt.rcParams["font.size"] + 3}):
+            fig, ax1 = plt.subplots(figsize=(8, 4.5))
+            if any("loss" in h for h in self.history):
+                loss_steps = [h["step"] for h in self.history if "loss" in h]
+                loss_vals = [h["loss"] for h in self.history if "loss" in h]
+                ax1.plot(loss_steps, loss_vals, color="tab:blue", label="loss")
+            ax1.set_xlabel("step")
+            ax1.set_ylabel("loss")
+            ax1.set_yscale("log")
+
+            # Right axis: all non-loss numeric metrics (train logs + eval metrics)
+            ax2 = ax1.twinx()
+            cmap = plt.get_cmap("tab10")
+            handles, labels = ax1.get_legend_handles_labels()
+            ci = 1  # skip tab10[0] (tab:blue), reserved for the loss curve
+            train_keys = sorted({k for h in self.history for k, v in h.items()
+                                 if k not in ("step", "loss") and isinstance(v, numbers.Real)})
+            for k in train_keys:
+                xs = [h["step"] for h in self.history if k in h]
+                ys = [h[k] for h in self.history if k in h]
+                hdl, = ax2.plot(xs, ys, color=cmap(ci % 10), alpha=0.8, label=k)
+                handles.append(hdl); labels.append(k); ci += 1
+            if self._eval_history:
+                eval_keys = sorted({k for h in self._eval_history for k, v in h.items()
+                                    if k != "step" and isinstance(v, numbers.Real)})
+                for k in eval_keys:
+                    xs = [h["step"] for h in self._eval_history if k in h]
+                    ys = [h[k] for h in self._eval_history if k in h]
+                    hdl, = ax2.plot(xs, ys, "o--", color=cmap(ci % 10), label=f"eval/{k}")
+                    handles.append(hdl); labels.append(f"eval/{k}"); ci += 1
+            ax2.set_ylabel("metrics")
+            if handles:
+                ax1.legend(handles, labels, loc="best", fontsize=plt.rcParams["font.size"] - 5)
+            fig.tight_layout()
+            os.makedirs(self.log_dir, exist_ok=True)
+            fig.savefig(os.path.join(self.log_dir, "training_curves.png"), dpi=120)
+            plt.close(fig)
+
+    def _flush_logs(self) -> None:
+        """Final flush: full history JSON + final curve figure."""
+        if not self._log_file_ready:
+            return
+        with open(os.path.join(self.log_dir, "history.json"), "w", encoding="utf-8") as f:
+            json.dump([self._jsonable(h) for h in self.history], f, indent=2)
+        self._update_plot()
+
     def train(self) -> list[dict]:
         self.model.train()
         use_dropout = self.args.dropout_rate > 0
-        for step in range(self.args.max_steps):
-            self._maybe_anneal_forcing(step)
-            batch = self._next_batch()
+        do_file_log = bool(self.args.log_every)
+        if do_file_log:
+            # Fresh run: reset the JSONL log (final full history goes to history.json)
+            os.makedirs(self.log_dir, exist_ok=True)
+            open(os.path.join(self.log_dir, "history.jsonl"), "w", encoding="utf-8").close()
 
-            self.optimizer.zero_grad()
+        self._pbar = tqdm(range(self.args.max_steps), desc="train", dynamic_ncols=True,
+                          disable=self.args.disable_progress_bar)
+        try:
+            for step in self._pbar:
+                self._maybe_anneal_forcing(step)
+                batch = self._next_batch()
 
-            if use_dropout:
-                # Dropout: task loss on clean output, matching trainRNNbrain strategy.
-                # forward_with_dropout returns (states_clean, outputs_clean,
-                # states_dropped, outputs_dropped) in one pass.
-                # For participation sampling, initialize with uniform on first step
-                if self.args.dropout_sampling == "participation" and self._participation is None:
-                    # First step: use uniform to bootstrap participation
-                    _boot_sampling = "uniform"
-                    part = None
-                else:
-                    _boot_sampling = self.args.dropout_sampling
-                    part = self._participation if self.args.dropout_sampling == "participation" else None
-                sc, oc, sd, od = self.model.forward_with_dropout(
-                    batch["inputs"],
-                    dropout_rate=self.args.dropout_rate,
-                    dropout_sampling=_boot_sampling,
-                    dropout_beta=self.args.dropout_beta,
-                    participation=part,
-                )
-                # Update participation via EMA
-                if self.args.dropout_sampling == "participation":
-                    M = self.model.config.latent_dim
-                    new_part = self._compute_participation(sc)
-                    if self._participation is None:
-                        self._participation = new_part
+                self.optimizer.zero_grad()
+
+                if use_dropout:
+                    # Dropout: task loss on clean output, matching trainRNNbrain strategy.
+                    # forward_with_dropout returns (states_clean, outputs_clean,
+                    # states_dropped, outputs_dropped) in one pass.
+                    # For participation sampling, initialize with uniform on first step
+                    if self.args.dropout_sampling == "participation" and self._participation is None:
+                        # First step: use uniform to bootstrap participation
+                        _boot_sampling = "uniform"
+                        part = None
                     else:
-                        self._participation = ((1 - self._participation_eta) * self._participation
-                                               + self._participation_eta * new_part)
+                        _boot_sampling = self.args.dropout_sampling
+                        part = self._participation if self.args.dropout_sampling == "participation" else None
+                    sc, oc, sd, od = self.model.forward_with_dropout(
+                        batch["inputs"],
+                        dropout_rate=self.args.dropout_rate,
+                        dropout_sampling=_boot_sampling,
+                        dropout_beta=self.args.dropout_beta,
+                        participation=part,
+                    )
+                    # Update participation via EMA
+                    if self.args.dropout_sampling == "participation":
+                        M = self.model.config.latent_dim
+                        new_part = self._compute_participation(sc)
+                        if self._participation is None:
+                            self._participation = new_part
+                        else:
+                            self._participation = ((1 - self._participation_eta) * self._participation
+                                                   + self._participation_eta * new_part)
 
-                # Patch model.forward temporarily so objective sees clean output
-                _orig_fwd = self.model.forward
-                self.model.forward = lambda *a, **kw: DynamicsModelOutput(
-                    outputs=oc, states=sc)
-                try:
+                    # Patch model.forward temporarily so objective sees clean output
+                    _orig_fwd = self.model.forward
+                    self.model.forward = lambda *a, **kw: DynamicsModelOutput(
+                        outputs=oc, states=sc)
+                    try:
+                        loss, logs = self.objective.compute_loss(self.model, batch)
+                    finally:
+                        self.model.forward = _orig_fwd
+                else:
                     loss, logs = self.objective.compute_loss(self.model, batch)
-                finally:
-                    self.model.forward = _orig_fwd
-            else:
-                loss, logs = self.objective.compute_loss(self.model, batch)
 
-            # ── Keep best model ──
-            if self.args.keep_best:
-                current_loss = loss.item()
-                if current_loss < self._best_loss:
-                    self._best_loss = current_loss
-                    import copy
-                    self._best_state_dict = copy.deepcopy(self.model.state_dict())
+                # ── Keep best model ──
+                if self.args.keep_best:
+                    current_loss = loss.item()
+                    if current_loss < self._best_loss:
+                        self._best_loss = current_loss
+                        import copy
+                        self._best_state_dict = copy.deepcopy(self.model.state_dict())
 
-            # ── Early stop ──
-            if self.args.early_stop_loss is not None and loss.item() < self.args.early_stop_loss:
-                if self.args.log_every:
-                    print(f"[train] step={step}  early stop: loss={loss.item():.4f} < {self.args.early_stop_loss}")
+                # ── Early stop ──
+                if self.args.early_stop_loss is not None and loss.item() < self.args.early_stop_loss:
+                    self._emit(f"[train] step={step}  early stop: "
+                               f"loss={loss.item():.4f} < {self.args.early_stop_loss}")
+                    logs = {"step": step, **logs}
+                    self.history.append(logs)
+                    self._pbar.set_postfix(self._postfix(logs), refresh=True)
+                    if do_file_log:
+                        self._write_log_line(logs)
+                    break
+
+                loss.backward()
+                if self.args.grad_clip_norm is not None:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.args.grad_clip_norm)
+                self.optimizer.step()
+                if self.post_step_hook is not None:
+                    self.post_step_hook(self.model)
+                if self.scheduler is not None:
+                    self.scheduler.step()
+
                 logs = {"step": step, **logs}
                 self.history.append(logs)
-                break
+                self._pbar.set_postfix(self._postfix(logs), refresh=False)
 
-            loss.backward()
-            if self.args.grad_clip_norm is not None:
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.args.grad_clip_norm)
-            self.optimizer.step()
-            if self.post_step_hook is not None:
-                self.post_step_hook(self.model)
-            if self.scheduler is not None:
-                self.scheduler.step()
+                if do_file_log and step % self.args.log_every == 0:
+                    self._write_log_line(logs)
+                    self._update_plot()
 
-            logs = {"step": step, **logs}
-            self.history.append(logs)
+                if (self.args.eval_every and self.eval_fn is not None
+                        and step > 0 and step % self.args.eval_every == 0):
+                    self.model.eval()
+                    metrics = self.eval_fn(self.model)
+                    self.model.train()
+                    self._last_eval = metrics
+                    self._eval_history.append({"step": step, **metrics})
+                    self._pbar.set_postfix(self._postfix(logs), refresh=True)
+                    if do_file_log:
+                        self._write_log_line({"step": step, "eval": True, **metrics})
+                        self._update_plot()
 
-            if self.args.log_every and step % self.args.log_every == 0:
-                msg = "  ".join(f"{k}={v:.4f}" if isinstance(v, float) else f"{k}={v}"
-                                for k, v in logs.items())
-                print(f"[train] {msg}")
+                    # Metric-based early stopping / best model
+                    if self.args.eval_metric is not None:
+                        if self.args.eval_metric not in metrics:
+                            raise ValueError(f"eval_metric '{self.args.eval_metric}' not found in eval_fn output. "
+                                             f"Available keys: {list(metrics.keys())}")
+                        current_metric = float(metrics[self.args.eval_metric])
+                        signed_current = self._best_metric_sign * current_metric
+                        tol = 1e-6
+                        if signed_current < self._best_metric - tol:
+                            self._best_metric = signed_current
+                            import copy
+                            self._best_state_dict_eval = copy.deepcopy(self.model.state_dict())
+                            self._eval_no_improve = 0
+                        else:
+                            self._eval_no_improve += 1
 
-            if (self.args.eval_every and self.eval_fn is not None
-                    and step > 0 and step % self.args.eval_every == 0):
-                self.model.eval()
-                metrics = self.eval_fn(self.model)
-                print(f"[eval ] step={step}  " +
-                      "  ".join(f"{k}={v:.4f}" for k, v in metrics.items()))
-                self.model.train()
+                        if (self.args.early_stopping_patience is not None
+                                and self._eval_no_improve >= self.args.early_stopping_patience):
+                            self._emit(f"[eval ] early stop at step {step}: no improvement for "
+                                       f"{self._eval_no_improve} evals")
+                            break
 
-                # Metric-based early stopping / best model
-                if self.args.eval_metric is not None:
-                    if self.args.eval_metric not in metrics:
-                        raise ValueError(f"eval_metric '{self.args.eval_metric}' not found in eval_fn output. "
-                                         f"Available keys: {list(metrics.keys())}")
-                    current_metric = float(metrics[self.args.eval_metric])
-                    signed_current = self._best_metric_sign * current_metric
-                    tol = 1e-6
-                    if signed_current < self._best_metric - tol:
-                        self._best_metric = signed_current
-                        import copy
-                        self._best_state_dict_eval = copy.deepcopy(self.model.state_dict())
-                        self._eval_no_improve = 0
-                    else:
-                        self._eval_no_improve += 1
-
-                    if (self.args.early_stopping_patience is not None
-                            and self._eval_no_improve >= self.args.early_stopping_patience):
-                        print(f"[eval ] early stop at step {step}: no improvement for "
-                              f"{self._eval_no_improve} evals")
-                        break
-
-            if self.args.save_every and step > 0 and step % self.args.save_every == 0:
-                self.save_checkpoint(step)
+                if self.args.save_every and step > 0 and step % self.args.save_every == 0:
+                    self.save_checkpoint(step)
+        finally:
+            self._pbar.close()
+            self._pbar = None
+            self._flush_logs()
 
         # ── Restore best model ──
         if self.args.eval_metric is not None:
@@ -245,7 +366,7 @@ class Trainer:
 
     # ---- Save/load: reuse the model's save_pretrained (safetensors + json) ----
     def save_checkpoint(self, step: int) -> str:
-        path = os.path.join(self.args.output_dir, f"checkpoint-{step}")
+        path = os.path.join(self.output_dir, f"checkpoint-{step}")
         self.model.save_pretrained(path, metadata={"step": step,
                                                     "training_args": self.args.to_dict()})
         return path

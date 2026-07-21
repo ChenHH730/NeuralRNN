@@ -149,9 +149,23 @@ def load_dataset(name: str, **overrides):
     """Unified entry point: lookup registry -> (download/cache on demand) -> instantiate dataset.
 
     overrides are forwarded to loader (e.g., sequence_length / batch_size / dt / seq_len).
+
+    Names not found in DATASET_REGISTRY fall through to neurogym: any env id registered by the
+    installed neurogym (e.g. 'GoNogo-v0'; case-insensitive, '-v0' optional) loads as a
+    NeurogymDataset. See neuralrnn.data.list_neurogym_datasets() for what is available.
     """
     if name not in DATASET_REGISTRY:
-        raise KeyError(f"Dataset '{name}' is not registered. Available: {sorted(DATASET_REGISTRY)}")
+        # Dynamic passthrough to neurogym env ids (registered names always win, so built-in
+        # tasks like 'go_nogo' are never shadowed; use the env id 'GoNogo-v0' for neurogym's).
+        from .neurogym_dataset import NeurogymDataset, _resolve_task_id, list_neurogym_datasets
+        resolved = _resolve_task_id(name)
+        if resolved in list_neurogym_datasets():
+            return NeurogymDataset.from_task(task=resolved, **overrides)
+        raise KeyError(
+            f"Dataset '{name}' is not registered. Available: {sorted(DATASET_REGISTRY)}. "
+            f"Any env id from the installed neurogym (e.g. 'GoNogo-v0') also works; "
+            f"see neuralrnn.data.list_neurogym_datasets()."
+        )
     spec = DATASET_REGISTRY[name]
 
     if spec.kind == "neurogym":

@@ -27,7 +27,10 @@ class TrainingArguments:
     log_every: int = 50
     eval_every: int | None = None      # None means no evaluation during training
     save_every: int | None = None
-    output_dir: str = "./outputs"
+    # Log artifacts (training curve figure + history files) go directly into output_dir;
+    # None → checkpoints fall back to "./outputs", logs to "./temp/log"
+    output_dir: str | None = None
+    disable_progress_bar: bool = False  # set True to silence the tqdm progress bar
     device: str = "cpu"                # "cpu" / "cuda" / "cuda:0"
     seed: int = 0
 

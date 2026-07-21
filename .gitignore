@@ -16,6 +16,7 @@ notebook/**/*.py
 docs/papers/*_cn.md
 notebook/_*
 **/*_executed.ipynb
+temp/
 # C extensions
 *.so
 scripts/*
