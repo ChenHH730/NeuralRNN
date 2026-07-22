@@ -30,12 +30,11 @@ class _ToyTimeSeries(BaseDataset):
 
     def sample_batch(self):
         import random
-        xs, ys = [], []
+        xs = []
         for _ in range(self.B):
             s = random.randint(0, self.X.shape[0] - self.L - 2)
-            xs.append(self.X[s:s + self.L]); ys.append(self.X[s + 1:s + self.L + 1])
-        return {"inputs": torch.stack(xs), "targets": torch.stack(ys),
-                "external_inputs": None}
+            xs.append(self.X[s:s + self.L])
+        return {"activity": torch.stack(xs)}
 
 
 class _ToyTask(BaseDataset):

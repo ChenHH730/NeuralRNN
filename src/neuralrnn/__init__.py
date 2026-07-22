@@ -54,7 +54,7 @@ from .auto import (
 
 # Data
 from .data import (
-    BaseDataset, StandardScaler, TimeSeriesDataset, TrialTimeseriesDataset, CustomDataset,
+    BaseDataset, StandardScaler, CustomDataset,
     CognitiveTaskDataset, ReconstructionDataset,
     DATASET_REGISTRY, DatasetSpec, load_dataset,
 )
@@ -83,7 +83,7 @@ __all__ = [
     "get_activation", "SUPPORTED_ACTIVATIONS",
     "AutoConfig", "AutoModel", "register_config", "register_model",
     "CONFIG_REGISTRY", "MODEL_REGISTRY",
-    "BaseDataset", "StandardScaler", "TimeSeriesDataset", "TrialTimeseriesDataset", "CustomDataset",
+    "BaseDataset", "StandardScaler", "CustomDataset",
     "CognitiveTaskDataset", "ReconstructionDataset",
     "DATASET_REGISTRY", "DatasetSpec", "load_dataset",
     "Trainer", "TrainingArguments",

@@ -40,6 +40,8 @@ def _build_optimizer(params, args: TrainingArguments):
         return torch.optim.AdamW(params, lr=args.learning_rate, weight_decay=args.weight_decay)
     if name == "sgd":
         return torch.optim.SGD(params, lr=args.learning_rate, weight_decay=args.weight_decay)
+    if name == "radam":
+        return torch.optim.RAdam(params, lr=args.learning_rate, weight_decay=args.weight_decay)
     raise ValueError(f"Unknown optimizer: {args.optimizer}")
 
 
@@ -50,6 +52,14 @@ def _build_scheduler(optimizer, args: TrainingArguments):
         return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.max_steps)
     if args.lr_scheduler == "step":
         return torch.optim.lr_scheduler.StepLR(optimizer, step_size=max(args.max_steps // 3, 1))
+    if args.lr_scheduler == "exponential":
+        # Exponential decay from learning_rate to lr_end over max_steps
+        # (ALRNN/dendPLRNN DSR references: 1e-3 -> 1e-5).
+        if args.lr_end is None:
+            raise ValueError("lr_scheduler='exponential' requires lr_end to be set")
+        import math
+        gamma = math.exp(math.log(args.lr_end / args.learning_rate) / max(args.max_steps, 1))
+        return torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
     raise ValueError(f"Unknown lr_scheduler: {args.lr_scheduler}")
 
 

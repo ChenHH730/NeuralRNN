@@ -236,6 +236,17 @@ class NeuralDynamicsModel(nn.Module):
         """Initial value z_0. Default zero vector; trainable initial value / encoder initial value can be overridden in subclasses."""
         return torch.zeros(batch_size, self.config.latent_dim, device=device)
 
+    def init_state_from_obs(self, x0: torch.Tensor) -> torch.Tensor:
+        """Initial latent state from the first observation x0: (B, N) -> (B, M).
+
+        Default (DSR identity observation): zero state with the first N dims set to
+        x0. Models with a learned observation->latent lift (e.g. ALRNN's B matrix)
+        override this.
+        """
+        z = self.init_state(x0.shape[0], x0.device)
+        z[..., :x0.shape[-1]] = x0
+        return z
+
     def forward(self, inputs: torch.Tensor | None = None, *,
                 initial_state: torch.Tensor | None = None,
                 n_steps: int | None = None,

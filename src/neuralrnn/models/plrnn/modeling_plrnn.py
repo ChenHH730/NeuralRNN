@@ -24,6 +24,16 @@ from ...auto.modeling_auto import register_model
 from .configuration_plrnn import ShallowPLRNNConfig, DendPLRNNConfig, ALRNNConfig
 
 
+def _make_z0_lift(config, latent_dim: int):
+    """Learnable observation->latent lift B (output_dim, latent_dim), init U(±1/sqrt(output_dim))
+    (AL-RNN reference init_uniform). Returns None when learn_z0 is disabled."""
+    if not getattr(config, "learn_z0", False):
+        return None
+    n_obs = config.output_dim
+    rB = 1.0 / (n_obs ** 0.5)
+    return nn.Parameter(uniform_(torch.empty(n_obs, latent_dim), -rB, rB))
+
+
 @register_model("shallow_plrnn")
 class ShallowPLRNNModel(NeuralDynamicsModel):
     config_class = ShallowPLRNNConfig
@@ -66,8 +76,10 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
         return z
 
     def readout(self, z_t):
-        # observation == "identity": directly observe latent state (standard DSR setting)
-        return z_t
+        # observation == "identity": directly observe latent state (standard DSR setting).
+        # When output_dim < latent_dim (M > N DSR setting), observations are the first
+        # output_dim latent units, matching the reference B = [I_N | 0] readout.
+        return z_t[..., :self.config.output_dim]
 
     # ---------------- analytic analysis support ----------------
     @property
@@ -123,16 +135,36 @@ class DendPLRNNModel(NeuralDynamicsModel):
         super().__init__(config)
         M, B, K = config.latent_dim, config.n_bases, config.input_dim
         r = 1.0 / (M ** 0.5)
-        self.W = nn.Parameter(uniform_(torch.empty(M, M), -r, r))
-        self.A = nn.Parameter(uniform_(torch.empty(M), a=0.5, b=0.9))
-        self.h = nn.Parameter(torch.zeros(M))
-        self.H = nn.Parameter(uniform_(torch.empty(M, B), -r, r))
-        self.alphas = nn.Parameter(uniform_(torch.empty(B), -r, r))
+        if config.init_scheme == "paper":
+            # Talathi & Vartak (2016) init from the BPTT-TF reference: a single
+            # AW = (I + R^T R / M) / lambda_max, split into A = diag(AW), W = AW - diag(AW).
+            R = torch.randn(M, M)
+            AW = torch.eye(M) + R.T @ R / M
+            AW = AW / torch.linalg.eigvals(AW).abs().max()
+            self.W = nn.Parameter(AW - torch.diag(torch.diagonal(AW)))
+            self.A = nn.Parameter(torch.diagonal(AW).contiguous())
+            self.h = nn.Parameter(uniform_(torch.empty(M), -r, r))
+            # alphas ~ U(±1/sqrt(B)) per the paper (Brenner et al. 2022)
+            rb = 1.0 / (B ** 0.5)
+            self.alphas = nn.Parameter(uniform_(torch.empty(B), -rb, rb))
+        else:
+            self.W = nn.Parameter(uniform_(torch.empty(M, M), -r, r))
+            self.A = nn.Parameter(uniform_(torch.empty(M), a=0.5, b=0.9))
+            self.h = nn.Parameter(torch.zeros(M))
+            self.alphas = nn.Parameter(uniform_(torch.empty(B), -r, r))
+        if config.threshold_range is not None:
+            # Thresholds covering the (normalized) data range, matching the reference
+            # init_thetas_uniform (sign-flipped: our basis is relu(z - H) = relu(z + theta)).
+            mn, mx = config.threshold_range
+            self.H = nn.Parameter(uniform_(torch.empty(M, B), float(mn), float(mx)))
+        else:
+            self.H = nn.Parameter(uniform_(torch.empty(M, B), -r, r))
         if config.autonomous:
             self.register_parameter("C", None)
         else:
             r3 = 1.0 / (K ** 0.5)
             self.C = nn.Parameter(uniform_(torch.empty(M, K), -r3, r3))
+        self.register_parameter("B", _make_z0_lift(config, M))
         self.clip_range = config.clip_range
         self.use_clipping = config.use_clipping
         self.apply_freeze_config()
@@ -147,28 +179,48 @@ class DendPLRNNModel(NeuralDynamicsModel):
             groups["input"] = [r"^C\."]
         else:
             groups["input"] = []
+        if self.B is not None:
+            groups["output"] = [r"^B\."]
         return groups
+
+    def init_state_from_obs(self, x0: torch.Tensor) -> torch.Tensor:
+        # Reference Z0Model: learned lift, then hard-set the observed dims
+        if self.B is not None:
+            z = x0 @ self.B
+            z[..., :x0.shape[-1]] = x0
+            return z
+        return super().init_state_from_obs(x0)
 
     def _basis(self, z: torch.Tensor) -> torch.Tensor:
         """Compute basis expansion sum_b alpha_b ReLU(z - H_b).
+
+        When use_clipping is True, uses the clipped basis expansion
+        sum_b alpha_b (ReLU(z - H_b) - ReLU(z)) (reference PLRNN_Clipping_Step),
+        which guarantees bounded orbits when ||A||_2 < 1 (paper Theorem 2).
 
         z: (B, M) -> (B, M)
         """
         z_ = z.unsqueeze(-1)          # (B, M, 1)
         H_ = self.H.unsqueeze(0)      # (1, M, B)
         a_ = self.alphas.view(1, 1, -1)  # (1, 1, B)
-        return (a_ * torch.relu(z_ - H_)).sum(dim=-1)
+        be = a_ * torch.relu(z_ - H_)
+        if self.use_clipping:
+            be = be - a_ * torch.relu(z_)
+        return be.sum(dim=-1)
 
     def recurrence(self, x_t, z_prev, *, inputs=None):
         z = self.A * z_prev + self._basis(z_prev) @ self.W.t() + self.h
         if self.C is not None and x_t is not None:
             z = z + x_t @ self.C.t()
-        if self.clip_range is not None:
+        # Clipped basis expansion is bounded by construction -> no hard state clamp
+        # (reference applies clip_z_to_range only to the unclipped variants).
+        if self.clip_range is not None and not self.use_clipping:
             z = torch.clamp(z, -self.clip_range, self.clip_range)
         return z
 
     def readout(self, z_t):
-        return z_t
+        # Observations are the first output_dim latent units when output_dim < latent_dim.
+        return z_t[..., :self.config.output_dim]
 
     @property
     def supports_analytic_fixed_points(self) -> bool:
@@ -181,6 +233,9 @@ class DendPLRNNModel(NeuralDynamicsModel):
         """
         # active indicator per unit and basis: (M, B)
         d = (z.unsqueeze(-1) > self.H).float()
+        if self.use_clipping:
+            # d/dz [alpha_b (relu(z - H_b) - relu(z))] = alpha_b (1[z > H_b] - 1[z > 0])
+            d = d - (z.unsqueeze(-1) > 0).float()
         # effective slope per unit: (M,)
         alpha_d = (self.alphas * d).sum(dim=-1)
         return torch.diag(self.A) + self.W @ torch.diag(alpha_d)
@@ -190,7 +245,8 @@ class DendPLRNNModel(NeuralDynamicsModel):
 
         Equivalent shallowPLRNN:
             z = A z + W1 ReLU(W2 z + h2) + h1
-        with hidden_dim = M * B,
+        with hidden_dim = M * B (or M * (B + 1) when use_clipping adds the
+        mirrored {-(sum alpha), 0} base),
             W2 = [I; I; ...; I]          (M*B, M)
             h2 = [-H_1; -H_2; ...; -H_B] (M*B,)
             W1 = [alpha_1 W, ..., alpha_B W] (M, M*B)
@@ -201,13 +257,20 @@ class DendPLRNNModel(NeuralDynamicsModel):
         """
         M, B = self.config.latent_dim, self.config.n_bases
         A_eff = torch.diag(self.A).detach()
-        W1 = torch.zeros(M, M * B, dtype=self.W.dtype, device=self.W.device)
-        W2 = torch.zeros(M * B, M, dtype=self.W.dtype, device=self.W.device)
-        h2 = torch.zeros(M * B, dtype=self.h.dtype, device=self.h.device)
+        # With use_clipping, phi(z) = sum_b alpha_b relu(z - H_b) - (sum_b alpha_b) relu(z),
+        # i.e. B bases {alpha_b, H_b} plus one extra base {-(sum alpha), threshold 0}.
+        n_eff = B + 1 if self.use_clipping else B
+        W1 = torch.zeros(M, M * n_eff, dtype=self.W.dtype, device=self.W.device)
+        W2 = torch.zeros(M * n_eff, M, dtype=self.W.dtype, device=self.W.device)
+        h2 = torch.zeros(M * n_eff, dtype=self.h.dtype, device=self.h.device)
         for b in range(B):
             W1[:, b * M:(b + 1) * M] = self.alphas[b].item() * self.W
             W2[b * M:(b + 1) * M, :] = torch.eye(M, dtype=W2.dtype, device=W2.device)
             h2[b * M:(b + 1) * M] = -self.H[:, b]
+        if self.use_clipping:
+            W1[:, B * M:(B + 1) * M] = -float(self.alphas.sum().item()) * self.W
+            W2[B * M:(B + 1) * M, :] = torch.eye(M, dtype=W2.dtype, device=W2.device)
+            # h2 block stays 0: relu(z - 0) = relu(z)
 
         h1_eff = self.h
         if task_input is not None and self.C is not None:
@@ -247,14 +310,25 @@ class ALRNNModel(NeuralDynamicsModel):
                 f"latent_dim={M}"
             )
         r = 1.0 / (M ** 0.5)
-        self.W = nn.Parameter(uniform_(torch.empty(M, M), -r, r))
-        self.A = nn.Parameter(uniform_(torch.empty(M), a=0.5, b=0.9))
-        self.h = nn.Parameter(torch.zeros(M))
+        if config.init_scheme == "paper":
+            # AL-RNN reference init (Brenner et al. 2024): A = diag of a normalized
+            # positive-definite random matrix (eigenvalues <= 1), W ~ N(0, 0.01^2), h = 0.
+            R = torch.randn(M, M)
+            K = R.T @ R / M + torch.eye(M)
+            K = K / torch.linalg.eigvals(K).abs().max()
+            self.A = nn.Parameter(torch.diagonal(K).contiguous())
+            self.W = nn.Parameter(torch.randn(M, M) * 0.01)
+            self.h = nn.Parameter(torch.zeros(M))
+        else:
+            self.W = nn.Parameter(uniform_(torch.empty(M, M), -r, r))
+            self.A = nn.Parameter(uniform_(torch.empty(M), a=0.5, b=0.9))
+            self.h = nn.Parameter(torch.zeros(M))
         if config.autonomous:
             self.register_parameter("C", None)
         else:
             r3 = 1.0 / (K ** 0.5)
             self.C = nn.Parameter(uniform_(torch.empty(M, K), -r3, r3))
+        self.register_parameter("B", _make_z0_lift(config, M))
         self.clip_range = config.clip_range
         self.use_clipping = config.use_clipping
         self.apply_freeze_config()
@@ -269,7 +343,17 @@ class ALRNNModel(NeuralDynamicsModel):
             groups["input"] = [r"^C\."]
         else:
             groups["input"] = []
+        if self.B is not None:
+            groups["output"] = [r"^B\."]
         return groups
+
+    def init_state_from_obs(self, x0: torch.Tensor) -> torch.Tensor:
+        # AL-RNN reference: z0 = x0 @ B, then hard-set the observed dims
+        if self.B is not None:
+            z = x0 @ self.B
+            z[..., :x0.shape[-1]] = x0
+            return z
+        return super().init_state_from_obs(x0)
 
     @property
     def n_linear(self) -> int:
@@ -297,7 +381,8 @@ class ALRNNModel(NeuralDynamicsModel):
         return z
 
     def readout(self, z_t):
-        return z_t
+        # Observations are the first output_dim latent units when output_dim < latent_dim.
+        return z_t[..., :self.config.output_dim]
 
     @property
     def supports_analytic_fixed_points(self) -> bool:

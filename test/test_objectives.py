@@ -65,16 +65,11 @@ class _ToyTimeSeries(BaseDataset):
         self.input_dim = self.output_dim = N
 
     def sample_batch(self):
-        xs, ys = [], []
+        xs = []
         for _ in range(self.B):
             s = np.random.randint(0, self.X.shape[0] - self.L - 2)
             xs.append(self.X[s : s + self.L])
-            ys.append(self.X[s + 1 : s + self.L + 1])
-        return {
-            "inputs": torch.stack(xs),
-            "targets": torch.stack(ys),
-            "external_inputs": None,
-        }
+        return {"activity": torch.stack(xs)}
 
 
 class _TinyVariationalModel(NeuralDynamicsModel):

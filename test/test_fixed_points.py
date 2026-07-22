@@ -83,6 +83,43 @@ class TestAnalyticBackend:
         fps = find_fixed_points(plrnn_model, backend="auto", max_order=1)
         assert isinstance(fps, FixedPointSet)
 
+    def _sign_combo_model(self):
+        """Hand-crafted shallow PLRNN whose 8 subregions each hold a valid FP.
+
+        z' = A z + W1 relu(W2 z + h2) + h1 with A=0, W1=2I, W2=I, h2=0,
+        h1=(-1,-2,-0.5): in every region D, z_i = h1_i/(1-2 d_i) is sign-consistent,
+        giving all 8 sign combinations of (1,2,0.5) as fixed points. These FPs
+        share coordinates pairwise, so an element-wise dedup (as in the original
+        CNS2023 code) would collapse them to one; vector-wise dedup keeps all 8.
+        """
+        cfg = AutoConfig.for_model("shallow_plrnn", input_dim=0, latent_dim=3,
+                                   output_dim=3, hidden_dim=3, autonomous=True)
+        model = AutoModel.from_config(cfg)
+        with torch.no_grad():
+            model.A.zero_()
+            model.W1.copy_(2 * torch.eye(3))
+            model.W2.copy_(torch.eye(3))
+            model.h1.copy_(torch.tensor([-1.0, -2.0, -0.5]))
+            model.h2.zero_()
+        return model
+
+    def test_analytic_dedup_keeps_coordinate_sharing_fps(self):
+        np.random.seed(0)
+        fps = find_fixed_points(self._sign_combo_model(), backend="analytic",
+                                max_order=1, outer_it=100, inner_it=10)
+        coords = {tuple(np.round(p.z, 6)) for p in fps}
+        expected = {(sx * 1.0, sy * 2.0, sz * 0.5)
+                    for sx in (1, -1) for sy in (1, -1) for sz in (1, -1)}
+        assert coords == expected
+
+    def test_analytic_dedup_tol_merges_close_fps(self):
+        np.random.seed(0)
+        fps = find_fixed_points(self._sign_combo_model(), backend="analytic",
+                                max_order=1, outer_it=100, inner_it=10,
+                                dedup_tol=10.0)
+        assert len(fps) == 1
+
+
     def test_auto_falls_back_to_numeric_for_ctrnn(self, ctrnn_model):
         fps = find_fixed_points(ctrnn_model, backend="auto",
                                 task_input=torch.zeros(3), n_candidates=8, n_iters=50)

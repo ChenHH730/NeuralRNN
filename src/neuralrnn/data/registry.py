@@ -33,7 +33,7 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
         url="https://github.com/DurstewitzLab/CNS-2023/raw/main/lorenz-datasets.zip",
         unpack="zip",
         files={"train": "lorenz63_train.npy", "test": "lorenz63_test.npy"},
-        loader="neuralrnn.data.timeseries_dataset:TimeSeriesDataset.from_npy",
+        loader="neuralrnn.data.reconstruction_dataset:ReconstructionDataset.from_npy",
         extra={"dt": 0.01},
     ),
     # nn-brain: neurogym task (no download needed)

@@ -328,11 +328,30 @@ def _get_eigvals(A, W1, W2, D_list, order):
     return np.linalg.eigvals(e)
 
 
-def _scy_fi(A, W1, W2, h1, h2, order, found_lower, outer_it=300, inner_it=100):
-    """Heuristic exact solver for order-k cycles (ported from CNS2023 scy_fi). A is an (M,M) diagonal matrix."""
+def _scy_fi(A, W1, W2, h1, h2, order, found_lower, outer_it=300, inner_it=100,
+            dedup_tol=1e-2):
+    """Heuristic exact solver for order-k cycles (ported from CNS2023 scy_fi). A is an (M,M) diagonal matrix.
+
+    NOTE: dedup deviates from the original CNS2023 code on purpose. The original
+    rejects a candidate when ANY single coordinate of the rounded candidate matches
+    ANY coordinate of an already-found cycle (element-wise ``np.isin``). In
+    high-dimensional latent spaces (e.g. dendPLRNN/ALRNN effective shallow forms)
+    this falsely rejects genuinely distinct fixed points, so a run returns only
+    one FP. Here dedup compares full state vectors with ``np.allclose``.
+    """
     hidden_dim = h2.shape[0]
     latent_dim = h1.shape[0]
     cycles, eigvals = [], []
+
+    def _is_duplicate(z):
+        # full-vector comparison against every point of every found cycle
+        if any(np.allclose(z, pt, atol=dedup_tol, rtol=0)
+               for cyc in cycles for pt in cyc):
+            return True
+        # skip cycles already found at lower orders
+        return any(np.allclose(z, pt, atol=dedup_tol, rtol=0)
+                   for lower in found_lower for cyc in lower for pt in cyc)
+
     i = -1
     while i < outer_it:
         i += 1
@@ -353,12 +372,7 @@ def _scy_fi(A, W1, W2, h1, h2, order, found_lower, outer_it=300, inner_it=100):
                 diff = np.sum(np.abs(traj_D[:, :, j] - D[:, :, j]))
                 if diff != 0:
                     break
-                if found_lower and np.round(traj[0], 2) in np.round(
-                        np.array(found_lower).flatten(), 2):
-                    diff = 1
-                    break
-            if diff == 0 and not np.any(np.isin(np.round(traj[0], 2),
-                                                np.round(cycles, 2) if cycles else np.array([]))):
+            if diff == 0 and not _is_duplicate(traj[0]):
                 e = _get_eigvals(A, W1, W2, D, order)
                 cycles.append(traj)
                 eigvals.append(e)
@@ -369,12 +383,14 @@ def _scy_fi(A, W1, W2, h1, h2, order, found_lower, outer_it=300, inner_it=100):
 
 
 class AnalyticPLRNNFixedPointFinder:
-    """PLRNN analytic backend: enumerate cycles of order 1..max_order exactly, with eigenvalues (CNS2023 main)."""
+    """PLRNN analytic backend: enumerate cycles of order 1..max_order exactly, with eigenvalues."""
 
-    def __init__(self, max_order: int = 1, outer_it: int = 300, inner_it: int = 100):
+    def __init__(self, max_order: int = 1, outer_it: int = 300, inner_it: int = 100,
+                 dedup_tol: float = 1e-2):
         self.max_order = max_order
         self.outer_it = outer_it
         self.inner_it = inner_it
+        self.dedup_tol = dedup_tol
 
     def find(self, model: NeuralDynamicsModel, *,
              task_input: torch.Tensor | None = None) -> FixedPointSet:
@@ -396,7 +412,8 @@ class AnalyticPLRNNFixedPointFinder:
         found_lower = []
         for order in range(1, self.max_order + 1):
             cycles, eigvals = _scy_fi(A, W1, W2, h1, h2, order, found_lower,
-                                      self.outer_it, self.inner_it)
+                                      self.outer_it, self.inner_it,
+                                      dedup_tol=self.dedup_tol)
             found_lower.append(cycles)
             for traj, e in zip(cycles, eigvals):
                 traj = np.asarray(traj)

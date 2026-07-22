@@ -10,11 +10,9 @@ from neuralrnn.train.objectives.teacher_forcing import TeacherForcingObjective
 
 
 def _random_batch(B: int, T: int, N: int, K: int = 0):
-    inputs = torch.randn(B, T, N)
-    targets = torch.randn(B, T, N)
-    batch = {"inputs": inputs, "targets": targets}
+    batch = {"activity": torch.randn(B, T, N)}
     if K > 0:
-        batch["external_inputs"] = torch.randn(B, T, K)
+        batch["inputs"] = torch.randn(B, T, K)
     return batch
 
 
@@ -37,7 +35,7 @@ class TestDendPLRNN:
         cfg = AutoConfig.for_model("dend_plrnn", latent_dim=4, n_bases=3, input_dim=2)
         model = AutoModel.from_config(cfg)
         batch = _random_batch(2, 10, 4, K=2)
-        out = model.forward(batch["external_inputs"])
+        out = model.forward(batch["inputs"])
         assert out.states.shape == (2, 10, 4)
 
     def test_jacobian_matches_autodiff(self):
@@ -101,7 +99,7 @@ class TestALRNN:
         cfg = AutoConfig.for_model("alrnn", latent_dim=5, n_linear=3, input_dim=2)
         model = AutoModel.from_config(cfg)
         batch = _random_batch(2, 10, 5, K=2)
-        out = model.forward(batch["external_inputs"])
+        out = model.forward(batch["inputs"])
         assert out.states.shape == (2, 10, 5)
 
     def test_jacobian_matches_autodiff(self):

@@ -59,9 +59,17 @@ class DendPLRNNConfig(ShallowPLRNNConfig):
 
     Args:
         n_bases: Number of basis functions B per latent unit.
-        use_clipping: Whether to use the clipped basis expansion that guarantees
-            bounded orbits when ||A||_2 < 1.
-        clip_range: Optional hard clip range for latent states.
+        use_clipping: Whether to use the clipped basis expansion
+            sum_b alpha_b (ReLU(z - H_b) - ReLU(z)) that guarantees
+            bounded orbits when ||A||_2 < 1 (reference clipped-PLRNN).
+        clip_range: Optional hard clip range for latent states (unclipped variant only).
+        threshold_range: Optional (min, max) range for initializing the basis
+            thresholds H; pass the (normalized) data range so the bases cover the
+            observations (reference init_thetas_uniform). None -> U(±1/sqrt(M)).
+        init_scheme: "default" (uniform inits) or "paper" (Talathi-Vartak AW split,
+            alphas ~ U(±1/sqrt(B)), h ~ U(±1/sqrt(M))).
+        learn_z0: Learn the observation->latent lift B (output_dim, latent_dim)
+            used by init_state_from_obs (reference Z0Model). Default False -> zero-hidden init.
     """
     model_type = "dend_plrnn"
 
@@ -70,12 +78,20 @@ class DendPLRNNConfig(ShallowPLRNNConfig):
         n_bases: int = 20,
         use_clipping: bool = False,
         clip_range: float | None = None,
+        threshold_range: tuple[float, float] | None = None,
+        init_scheme: str = "default",
+        learn_z0: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
+        if init_scheme not in ("default", "paper"):
+            raise ValueError(f"Unknown init_scheme: {init_scheme}")
         self.n_bases = n_bases
         self.use_clipping = use_clipping
         self.clip_range = clip_range
+        self.threshold_range = tuple(threshold_range) if threshold_range is not None else None
+        self.init_scheme = init_scheme
+        self.learn_z0 = bool(learn_z0)
 
 
 class ALRNNConfig(ShallowPLRNNConfig):
@@ -90,6 +106,11 @@ class ALRNNConfig(ShallowPLRNNConfig):
             latent_dim - n_linear units are ReLU.
         use_clipping: Whether to clip latent states.
         clip_range: Optional hard clip range for latent states.
+        init_scheme: "default" (uniform inits) or "paper" (AL-RNN reference:
+            A = diag of normalized positive-definite matrix, W ~ N(0, 0.01^2), h = 0).
+        learn_z0: Learn the observation->latent lift B (output_dim, latent_dim)
+            used by init_state_from_obs (AL-RNN reference: z0 = x0 @ B, with the
+            first output_dim dims then hard-set to x0). Default False -> zero-hidden init.
     """
     model_type = "alrnn"
 
@@ -98,9 +119,15 @@ class ALRNNConfig(ShallowPLRNNConfig):
         n_linear: int = 1,
         use_clipping: bool = False,
         clip_range: float | None = None,
+        init_scheme: str = "default",
+        learn_z0: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
+        if init_scheme not in ("default", "paper"):
+            raise ValueError(f"Unknown init_scheme: {init_scheme}")
         self.n_linear = n_linear
         self.use_clipping = use_clipping
         self.clip_range = clip_range
+        self.init_scheme = init_scheme
+        self.learn_z0 = bool(learn_z0)

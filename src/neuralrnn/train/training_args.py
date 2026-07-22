@@ -17,10 +17,11 @@ class TrainingArguments:
     max_steps: int = 1000              # DSR / tasks are usually step-based (one batch = one step)
     batch_size: int = 16
     grad_clip_norm: float | None = 1.0  # gradient clipping; None disables
-    optimizer: str = "adam"            # adam / adamw / sgd
+    optimizer: str = "adam"            # adam / adamw / sgd / radam
 
     # -- Scheduling --
-    lr_scheduler: str | None = None    # None / "cosine" / "step"
+    lr_scheduler: str | None = None    # None / "cosine" / "step" / "exponential"
+    lr_end: float | None = None        # required for "exponential": decay learning_rate -> lr_end over max_steps
     warmup_steps: int = 0
 
     # -- Logging / evaluation / checkpointing --

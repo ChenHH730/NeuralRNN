@@ -2,7 +2,7 @@
 
 Covers:
   - BaseDataset subclassing contract
-  - TimeSeriesDataset construction and batch shapes
+  - ReconstructionDataset.from_timeseries construction and batch shapes
   - CustomDataset with inputs/targets/states
   - Registered dataset names and load_dataset entry point
   - download.py cache helpers (without network access)
@@ -14,7 +14,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from neuralrnn.data import BaseDataset, TimeSeriesDataset, CustomDataset, TrialTimeseriesDataset
+from neuralrnn.data import BaseDataset, CustomDataset, ReconstructionDataset
 from neuralrnn.data.registry import DATASET_REGISTRY, load_dataset
 from neuralrnn.data import download as download_module
 
@@ -44,17 +44,29 @@ class TestBaseDatasetContract:
         assert batch["inputs"].shape == (4, 10, 2)
 
 
-class TestTimeSeriesDataset:
+class TestFromTimeseries:
     def test_sample_batch_shapes(self):
         data = np.random.randn(500, 3).astype(np.float32)
-        ds = TimeSeriesDataset(data, sequence_length=50, batch_size=8)
+        ds = ReconstructionDataset.from_timeseries(data, sequence_length=50, batch_size=8)
         batch = ds.sample_batch()
 
-        assert ds.input_dim == 3
         assert ds.output_dim == 3
-        assert batch["inputs"].shape == (8, 50, 3)
-        assert batch["targets"].shape == (8, 50, 3)
-        assert batch["external_inputs"] is None
+        assert ds.input_dim == 0
+        assert batch["activity"].shape == (8, 50, 3)
+        assert "inputs" not in batch
+        assert len(ds) == 500 - 50
+
+    def test_external_inputs_and_normalization(self):
+        data = np.random.randn(300, 2).astype(np.float32) * 5 + 10
+        ext = np.random.randn(300, 1).astype(np.float32)
+        ds = ReconstructionDataset.from_timeseries(
+            data, external_inputs=ext, sequence_length=20, batch_size=4, normalize=True)
+        batch = ds.sample_batch()
+        assert batch["activity"].shape == (4, 20, 2)
+        assert batch["inputs"].shape == (4, 20, 1)
+        assert ds.input_dim == 1
+        assert ds.normalizer is not None
+        assert abs(float(ds.X.mean())) < 0.2  # roughly standardized
 
 
 class TestCustomDataset:
@@ -95,23 +107,6 @@ class TestCustomDataset:
         )
         assert ds.IS is not None
         assert ds.IS.shape == (T, M)
-
-
-class TestTrialTimeseriesDataset:
-    def test_trial_dataset_registered_and_runs(self):
-        B, T, N = 16, 10, 4
-        inputs = np.random.randn(B, T, N).astype(np.float32)
-        ds = TrialTimeseriesDataset.from_arrays(inputs, batch_size=4)
-        batch = ds.sample_batch()
-        assert batch["inputs"].shape == (4, T, N)
-        assert batch["targets"].shape == (4, T, N)
-
-    def test_trial_dataset_preserves_trials_in_test_split(self):
-        B, T, N = 50, 8, 3
-        inputs = np.random.randn(B, T, N).astype(np.float32)
-        ds = TrialTimeseriesDataset.from_arrays(inputs, batch_size=4, test_fraction=0.2, seed=0)
-        assert ds.test_set is not None
-        assert ds.X.shape[0] + ds.test_set.X.shape[0] == B
 
 
 class TestDatasetRegistry:
