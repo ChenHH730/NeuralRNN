@@ -3,7 +3,7 @@ from .base import BaseDataset, StandardScaler, Trials
 from .timeseries_dataset import TimeSeriesDataset
 from .custom_dataset import CustomDataset
 from .cognitive_task_dataset import CognitiveTaskDataset
-from .latent_circuit_dataset import LatentCircuitDataset
+from .reconstruction_dataset import ReconstructionDataset
 from .registry import DATASET_REGISTRY, DatasetSpec, load_dataset
 
 from .trial_dataset import TrialTimeseriesDataset
@@ -14,7 +14,7 @@ __all__ = [
     "TrialTimeseriesDataset",
     "CustomDataset",
     "CognitiveTaskDataset",
-    "LatentCircuitDataset",
+    "ReconstructionDataset",
     "DATASET_REGISTRY", "DatasetSpec", "load_dataset",
 ]
 

@@ -96,7 +96,7 @@ def _ensure_builtin_objectives_loaded():
         teacher_forcing,
         behavioral,
         variational,
-        latent_circuit,
+        reconstruction,
         constrained,
         regularized_supervised,
     )
@@ -106,7 +106,7 @@ def _ensure_builtin_objectives_loaded():
         teacher_forcing,
         behavioral,
         variational,
-        latent_circuit,
+        reconstruction,
         constrained,
         regularized_supervised,
     )

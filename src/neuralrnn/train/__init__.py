@@ -12,7 +12,7 @@ from .objectives import (
     TeacherForcingObjective,
     BehavioralObjective,
     VariationalObjective,
-    LatentCircuitObjective,
+    ReconstructionObjective,
     ConstrainedSupervisedObjective,
 )
 from .losses import (
@@ -48,7 +48,7 @@ __all__ = [
     "TeacherForcingObjective",
     "BehavioralObjective",
     "VariationalObjective",
-    "LatentCircuitObjective",
+    "ReconstructionObjective",
     "ConstrainedSupervisedObjective",
     "masked_mse",
     "masked_cross_entropy",

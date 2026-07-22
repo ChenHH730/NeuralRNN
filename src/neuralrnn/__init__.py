@@ -55,7 +55,7 @@ from .auto import (
 # Data
 from .data import (
     BaseDataset, StandardScaler, TimeSeriesDataset, TrialTimeseriesDataset, CustomDataset,
-    CognitiveTaskDataset, LatentCircuitDataset,
+    CognitiveTaskDataset, ReconstructionDataset,
     DATASET_REGISTRY, DatasetSpec, load_dataset,
 )
 
@@ -64,7 +64,7 @@ from .train import (
     Trainer, TrainingArguments,
     Objective, SupervisedObjective, RegularizedSupervisedObjective,
     TeacherForcingObjective, BehavioralObjective, VariationalObjective,
-    LatentCircuitObjective, ConstrainedSupervisedObjective,
+    ReconstructionObjective, ConstrainedSupervisedObjective,
     build_objective, register_objective, OBJECTIVE_REGISTRY, AutoObjective,
     masked_mse, masked_cross_entropy, masked_nll, loss_mse,
     activity_l2, weight_l2, weight_l1,
@@ -84,12 +84,12 @@ __all__ = [
     "AutoConfig", "AutoModel", "register_config", "register_model",
     "CONFIG_REGISTRY", "MODEL_REGISTRY",
     "BaseDataset", "StandardScaler", "TimeSeriesDataset", "TrialTimeseriesDataset", "CustomDataset",
-    "CognitiveTaskDataset", "LatentCircuitDataset",
+    "CognitiveTaskDataset", "ReconstructionDataset",
     "DATASET_REGISTRY", "DatasetSpec", "load_dataset",
     "Trainer", "TrainingArguments",
     "Objective", "SupervisedObjective", "RegularizedSupervisedObjective",
     "TeacherForcingObjective", "BehavioralObjective", "VariationalObjective",
-    "LatentCircuitObjective", "ConstrainedSupervisedObjective",
+    "ReconstructionObjective", "ConstrainedSupervisedObjective",
     "build_objective", "register_objective", "OBJECTIVE_REGISTRY", "AutoObjective",
     "masked_mse", "masked_cross_entropy", "masked_nll", "loss_mse",
     "activity_l2", "weight_l2", "weight_l1",

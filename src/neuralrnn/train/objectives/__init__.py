@@ -11,7 +11,7 @@ from .regularized_supervised import RegularizedSupervisedObjective
 from .teacher_forcing import TeacherForcingObjective, generalized_teacher_forcing
 from .behavioral import BehavioralObjective
 from .variational import VariationalObjective
-from .latent_circuit import LatentCircuitObjective
+from .reconstruction import ReconstructionObjective
 from .constrained import ConstrainedSupervisedObjective
 
 __all__ = [
@@ -26,6 +26,6 @@ __all__ = [
     "generalized_teacher_forcing",
     "BehavioralObjective",
     "VariationalObjective",
-    "LatentCircuitObjective",
+    "ReconstructionObjective",
     "ConstrainedSupervisedObjective",
 ]

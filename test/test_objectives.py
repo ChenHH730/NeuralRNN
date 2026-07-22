@@ -20,7 +20,7 @@ from neuralrnn import AutoConfig, AutoModel, NeuralDynamicsModel, NeuralRNNConfi
 from neuralrnn import (
     SupervisedObjective, TeacherForcingObjective,
     BehavioralObjective, VariationalObjective,
-    LatentCircuitObjective, ConstrainedSupervisedObjective,
+    ReconstructionObjective, ConstrainedSupervisedObjective,
     RegularizedSupervisedObjective,
     build_objective, OBJECTIVE_REGISTRY, AutoObjective,
 )
@@ -130,7 +130,7 @@ class TestBuildObjective:
     def test_registry_contains_all_objectives(self):
         expected = {
             "supervised", "regularized_supervised", "teacher_forcing",
-            "behavioral", "variational", "latent_circuit", "constrained_supervised",
+            "behavioral", "variational", "reconstruction", "constrained_supervised",
         }
         assert expected.issubset(set(OBJECTIVE_REGISTRY))
 

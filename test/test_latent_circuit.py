@@ -6,13 +6,13 @@ Tests cover:
 - Connectivity masks
 - Embedding roundtrip
 - Save/load
-- LatentCircuitObjective
 - CognitiveTaskDataset (all tasks)
-- LatentCircuitDataset
 - Connectivity analysis
 - Perturbation analysis
 - Post-step hook in Trainer
 - Analysis integration (fixed points, PCA)
+
+(The reconstruction dataset/objective moved to test_reconstruction.py.)
 """
 import pytest
 
@@ -62,14 +62,6 @@ def _make_task_ds(task_name="mante", **kwargs):
         defaults["n_coh"] = 2
     defaults.update(kwargs)
     return CognitiveTaskDataset.from_task(task_name, **defaults)
-
-
-def _make_lc_ds():
-    """Create a latent circuit dataset from a small RNN and task."""
-    from neuralrnn.data.latent_circuit_dataset import LatentCircuitDataset
-    rnn = _make_rnn()
-    task_ds = _make_task_ds()
-    return LatentCircuitDataset.from_rnn_and_task(rnn, task_ds, batch_size=4)
 
 
 # ---------------------------------------------------------------------------
@@ -220,37 +212,6 @@ class TestSaveLoad:
 
 
 # ---------------------------------------------------------------------------
-# TestLatentCircuitObjective
-# ---------------------------------------------------------------------------
-
-class TestLatentCircuitObjective:
-    def test_compute_loss(self):
-        from neuralrnn.train.objectives.latent_circuit import LatentCircuitObjective
-        model = _make_lc()
-        ds = _make_lc_ds()
-        obj = LatentCircuitObjective(l_y=1.0)
-        batch = ds.sample_batch()
-        loss, logs = obj.compute_loss(model, batch)
-        assert loss.isfinite()
-        assert "mse_z" in logs
-        assert "nmse_y" in logs
-        assert logs["mse_z"] >= 0
-        assert logs["nmse_y"] >= 0
-
-    def test_gradient_flows(self):
-        from neuralrnn.train.objectives.latent_circuit import LatentCircuitObjective
-        model = _make_lc()
-        ds = _make_lc_ds()
-        obj = LatentCircuitObjective(l_y=1.0)
-        batch = ds.sample_batch()
-        loss, _ = obj.compute_loss(model, batch)
-        loss.backward()
-        assert model.w_rec.weight.grad is not None
-        assert model.w_in.weight.grad is not None
-        assert model.w_out.weight.grad is not None
-
-
-# ---------------------------------------------------------------------------
 # TestCognitiveTaskDataset
 # ---------------------------------------------------------------------------
 
@@ -283,26 +244,6 @@ class TestCognitiveTaskDataset:
         from neuralrnn.data import load_dataset
         ds = load_dataset("mante", n_trials=2, n_coh=2, batch_size=4)
         assert ds.inputs.ndim == 3
-
-
-# ---------------------------------------------------------------------------
-# TestLatentCircuitDataset
-# ---------------------------------------------------------------------------
-
-class TestLatentCircuitDataset:
-    def test_from_rnn_and_task(self):
-        ds = _make_lc_ds()
-        assert ds.inputs.ndim == 3
-        assert ds.targets.ndim == 3
-        assert ds.rnn_states.ndim == 3
-        assert ds.inputs.shape[0] == ds.rnn_states.shape[0]
-
-    def test_sample_batch(self):
-        ds = _make_lc_ds()
-        batch = ds.sample_batch()
-        assert "inputs" in batch
-        assert "targets" in batch
-        assert "rnn_states" in batch
 
 
 # ---------------------------------------------------------------------------
