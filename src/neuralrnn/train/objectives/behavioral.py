@@ -30,6 +30,8 @@ class BehavioralObjective(Objective):
     """
 
     def compute_loss(self, model: NeuralDynamicsModel, batch):
+        """Batch keys: "inputs" (B,T,K), "targets" (B,T) action indices,
+        optional "mask" (B,T). Returns (loss, {"loss", "nll", ["l1"]})."""
         out = model(batch["inputs"])
         logits = out.outputs                 # (B, T or T+1, n_actions)
         target = batch["targets"].long()     # (B, T)

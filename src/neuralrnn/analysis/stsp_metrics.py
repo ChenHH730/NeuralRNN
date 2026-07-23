@@ -26,6 +26,7 @@ def _smoothed_power_spectrum(x: np.ndarray, smoothing: float) -> np.ndarray:
 
 
 def hellinger_distance(p: np.ndarray, q: np.ndarray) -> float:
+    """Hellinger distance between two normalized distributions p, q (same shape)."""
     return float(np.sqrt(1 - np.sum(np.sqrt(p * q))))
 
 

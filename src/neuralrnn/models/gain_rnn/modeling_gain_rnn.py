@@ -213,6 +213,11 @@ class GainRNNModel(ConstrainedRNNModel):
 
     # ---------------- hard contract ----------------
     def recurrence(self, x_t, z_prev, *, inputs=None):
+        """Single Euler step. x_t: (B, input_dim), z_prev: (B, M) -> z_t: (B, M).
+
+        In "rate" mode the recurrent matrix reads the firing rate rate_map(z);
+        otherwise it reads z. See _euler_step for the full update.
+        """
         mode = self.config.nonlinearity_mode
         rec_in = self.rate_map(z_prev) if mode == "rate" else z_prev
         return self._euler_step(rec_in, z_prev, x_t)
@@ -284,6 +289,7 @@ class StpRNNModel(GainRNNModel):
         return groups
 
     def apply_freeze_config(self) -> list[str]:
+        """Apply base/family freeze flags plus the STP-specific freeze_stp flag."""
         frozen = list(super().apply_freeze_config())
         if getattr(self.config, "freeze_stp", False):
             frozen += self.freeze_parameters(groups="stp")
@@ -305,6 +311,7 @@ class StpRNNModel(GainRNNModel):
             is_fac = torch.arange(M) % 2 == 0
 
             def alt(fac: float, dep: float) -> torch.Tensor:
+                """(M,) vector: ``fac`` on facilitating units, ``dep`` on depressing ones."""
                 return torch.where(
                     is_fac, torch.full((M,), float(fac)), torch.full((M,), float(dep))
                 )
@@ -432,6 +439,7 @@ class StpRNNModel(GainRNNModel):
         return h_new
 
     def readout(self, z_t: torch.Tensor) -> torch.Tensor:
+        """Readout from the h part of the state. (B, 3M) or (B, M) -> (B, output_dim)."""
         M = self.config.latent_dim
         h = z_t[..., :M] if z_t.shape[-1] == 3 * M else z_t
         return super().readout(h)
@@ -510,6 +518,7 @@ class StpRNNModel(GainRNNModel):
         scale = 1.0 / (1.0 - dropout_rate)
 
         def rollout(apply_dropout: bool):
+            """One T-step rollout; returns (h trajectory (B,T,M), readouts (B,T,O))."""
             z = z0.clone()
             hs, ys = [], []
             for t in range(T):

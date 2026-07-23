@@ -53,7 +53,6 @@ from .stsp_metrics import (
     power_spectrum_error,
     hellinger_distance,
 )
-from .manifold import trajectories_to_pos_vel
 from .manifolds import (
     PLRNNManifoldTracer,
     compute_manifold,
@@ -138,8 +137,7 @@ __all__ = [
     "state_space_divergence_gmm",
     "power_spectrum_error",
     "hellinger_distance",
-    # -- manifold --
-    "trajectories_to_pos_vel",
+    # -- PLRNN invariant manifolds --
     "PLRNNManifoldTracer",
     "compute_manifold",
     "ManifoldSegment",

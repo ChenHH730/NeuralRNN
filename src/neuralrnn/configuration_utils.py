@@ -156,14 +156,17 @@ class NeuralRNNConfig:
 
     # ---------- Serialization ----------
     def to_dict(self) -> dict[str, Any]:
+        """Serialize all public fields + ``model_type`` to a plain dict."""
         d = {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
         d["model_type"] = self.model_type
         return d
 
     def to_json_string(self) -> str:
+        """Serialize to a JSON string (sorted keys, human-readable)."""
         return json.dumps(self.to_dict(), indent=2, ensure_ascii=False, sort_keys=True)
 
     def to_json_file(self, save_directory: str) -> str:
+        """Write config.json into ``save_directory`` (created if missing); returns the path."""
         os.makedirs(save_directory, exist_ok=True)
         path = os.path.join(save_directory, CONFIG_FILE_NAME)
         with open(path, "w", encoding="utf-8") as f:
@@ -172,12 +175,14 @@ class NeuralRNNConfig:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "NeuralRNNConfig":
+        """Build a config from a plain dict (``model_type`` is ignored)."""
         d = dict(d)
         d.pop("model_type", None)  # carried by the concrete subclass itself
         return cls(**d)
 
     @classmethod
     def from_json_file(cls, json_file: str) -> "NeuralRNNConfig":
+        """Build a config from a config.json file path."""
         with open(json_file, "r", encoding="utf-8") as f:
             return cls.from_dict(json.load(f))
 

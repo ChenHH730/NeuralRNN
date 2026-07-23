@@ -66,6 +66,8 @@ class RegularizedSupervisedObjective(SupervisedObjective):
         self.activity_reduce = activity_reduce
 
     def compute_loss(self, model, batch):
+        """Same batch schema as SupervisedObjective; logs add "task_loss" /
+        "activity_loss" / "weight_loss" / "ortho_loss" as terms are active."""
         task_loss, logs = super().compute_loss(model, batch)
         # SupervisedObjective returns task_loss computed with its own reduction.
         # For regression with mse_reduce="global", recompute the task loss so the

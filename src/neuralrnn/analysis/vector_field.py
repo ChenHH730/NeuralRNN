@@ -17,6 +17,8 @@ from ..modeling_utils import NeuralDynamicsModel
 
 @dataclass
 class VectorField:
+    """Vector field sampled on a 2D plane (see compute_vector_field)."""
+
     grid_pc: np.ndarray        # Grid points (plane coordinates) (G, 2)
     velocity_pc: np.ndarray    # Velocity vectors projected back to the plane (G, 2)
     speed: np.ndarray          # Full-dimensional norm of F(z)−z (G,)

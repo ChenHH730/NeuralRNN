@@ -78,8 +78,7 @@ src/neuralrnn/
   train/                   # generic Trainer + paradigm Objectives + reusable loss terms /
                            #   regularizers / metrics + nested cross-validation
   analysis/                # fixed points / linearization / vector fields / dim reduction /
-                           #   Lyapunov / D_stsp, D_H / manifold / sequentiality
-  inputs/  tools/          # reserved
+                           #   Lyapunov / D_stsp, D_H / PLRNN invariant manifolds / sequentiality
 docs/                      # ARCHITECTURE.md · PORTING_GUIDE.md · theory/ · papers/
 notebook/                  # end-to-end tutorials for each paper
 ```

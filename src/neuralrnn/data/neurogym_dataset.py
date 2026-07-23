@@ -299,6 +299,14 @@ class NeurogymDataset(BaseDataset):
     # ------------------------------------------------------------------ sampling
 
     def sample_batch(self) -> dict[str, torch.Tensor]:
+        """Sample one batch.
+
+        Trial-aligned mode: whole trials sampled with replacement, returns
+        {"inputs" (B,T,obs), "targets" (B,T)/(B,T,act), "mask" (B,T)}.
+        Streaming mode: concatenated-trial windows from neurogym, returns
+        {"inputs" (B,T,obs), "targets" (B,T) discrete or (B,T,act) continuous,
+        "mask": None}.
+        """
         if self._trial_aligned:
             # CognitiveTaskDataset pattern: sample whole trials with replacement
             idx = torch.randint(0, self.inputs.shape[0], (self.batch_size,))

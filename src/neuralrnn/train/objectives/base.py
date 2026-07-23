@@ -32,4 +32,5 @@ class Objective:
 
     # Optional: objectives that support curriculum forcing annealing override this (Trainer calls it each step)
     def set_forcing(self, alpha: float) -> None:  # noqa: D401
+        """Set the forcing strength (no-op by default; e.g. GTF alpha annealing)."""
         pass

@@ -81,18 +81,23 @@ class DynamicsModelOutput:
         return other / self.outputs
 
     def sign(self):
+        """Element-wise sign of .outputs (tensor delegation)."""
         return self.outputs.sign()
 
     def squeeze(self, dim=None):
+        """Squeeze .outputs (tensor delegation)."""
         return self.outputs.squeeze(dim) if dim is not None else self.outputs.squeeze()
 
     def mean(self, *args, **kwargs):
+        """Mean of .outputs (tensor delegation)."""
         return self.outputs.mean(*args, **kwargs)
 
     def sum(self, *args, **kwargs):
+        """Sum of .outputs (tensor delegation)."""
         return self.outputs.sum(*args, **kwargs)
 
     def pow(self, n):
+        """Element-wise power of .outputs (tensor delegation)."""
         return self.outputs.pow(n)
 
     def detach(self):
@@ -114,6 +119,7 @@ class DynamicsModelOutput:
 
     @property
     def device(self):
+        """Device of .outputs (None when outputs is None)."""
         return self.outputs.device if self.outputs is not None else None
 
 
@@ -281,7 +287,9 @@ class NeuralDynamicsModel(nn.Module):
     @torch.no_grad()
     def generate(self, initial_state: torch.Tensor, n_steps: int,
                  inputs: torch.Tensor | None = None) -> torch.Tensor:
-        """Free rollout (no teacher forcing), returning latent trajectory (B,T,M). For analysis / evaluation."""
+        """Free rollout (no teacher forcing), returning the latent trajectory
+        (B, n_steps+1, M) including the given initial state at index 0.
+        For analysis / evaluation."""
         self.eval()
         z = initial_state
         traj = [z]
@@ -385,6 +393,8 @@ class NeuralDynamicsModel(nn.Module):
     # ---------- Analysis support (analytic models may override for speed) ----------
     @property
     def supports_analytic_fixed_points(self) -> bool:
+        """Whether the model exposes a closed-form Jacobian / fixed-point solver
+        (override to True and implement analytic_parameters / jacobian)."""
         return False
 
     def jacobian(self, z: torch.Tensor, *, inputs: torch.Tensor | None = None) -> torch.Tensor:
@@ -394,6 +404,7 @@ class NeuralDynamicsModel(nn.Module):
         x_t = inputs[:1] if inputs is not None else None
 
         def f(zz):
+            """Single-step map F with fixed input, unbatched: (M,) -> (M,)."""
             return self.recurrence(x_t, zz.unsqueeze(0)).squeeze(0)
 
         return torch.autograd.functional.jacobian(f, z)
@@ -447,4 +458,5 @@ class NeuralDynamicsModel(nn.Module):
         return model
 
     def num_parameters(self) -> int:
+        """Total number of model parameters (trainable + frozen)."""
         return sum(p.numel() for p in self.parameters())

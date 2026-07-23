@@ -17,6 +17,8 @@ from ..modeling_utils import NeuralDynamicsModel
 
 @dataclass
 class LinearizationResult:
+    """Jacobian eigensystem at a state, with stability summary."""
+
     jacobian: np.ndarray
     eigenvalues: np.ndarray
     eigenvectors: np.ndarray

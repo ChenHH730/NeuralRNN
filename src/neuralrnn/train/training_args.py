@@ -11,6 +11,7 @@ from dataclasses import dataclass, field, asdict
 
 @dataclass
 class TrainingArguments:
+    """Training hyperparameters read by Trainer. See inline comments per field."""
     # -- Optimization --
     learning_rate: float = 1e-3
     weight_decay: float = 0.0
@@ -61,4 +62,5 @@ class TrainingArguments:
     extra: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
+        """Serialize all fields to a plain dict (stored in checkpoint metadata)."""
         return asdict(self)

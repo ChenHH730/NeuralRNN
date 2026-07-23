@@ -88,15 +88,6 @@ class CTRNNConfig(NeuralRNNConfig):
         self.nonlinearity_mode = nonlinearity_mode
 
 
-class VanillaRNNConfig(CTRNNConfig):
-    """Discrete vanilla RNN (dt=None is equivalent to alpha=1)."""
-    model_type = "vanilla_rnn"
-
-    def __init__(self, **kwargs):
-        kwargs.setdefault("dt", None)
-        super().__init__(**kwargs)
-
-
 class EIRNNConfig(CTRNNConfig):
     """Excitatory-Inhibitory RNN (Dale's principle enforced by default).
 

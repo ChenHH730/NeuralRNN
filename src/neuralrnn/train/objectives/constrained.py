@@ -25,6 +25,8 @@ class ConstrainedSupervisedObjective(SupervisedObjective):
         self.constraint_weight = constraint_weight
 
     def compute_loss(self, model, batch):
+        """Same batch schema as SupervisedObjective; adds constraint_loss logs
+        ("task_loss", "constraint_loss") when constraint_weight > 0."""
         task_loss, logs = super().compute_loss(model, batch)
         if self.constraint_weight > 0 and hasattr(model, "constraint_loss"):
             reg = model.constraint_loss()

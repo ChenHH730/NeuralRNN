@@ -24,6 +24,8 @@ from ..modeling_utils import NeuralDynamicsModel
 
 @dataclass
 class FixedPoint:
+    """One fixed point (or k-cycle) with its local stability information."""
+
     z: np.ndarray                       # Fixed-point coordinate (M,)
     speed: float                        # ‖F(z) − z‖ (numeric backend); 0 for analytic backend
     eigenvalues: np.ndarray | None = None  # Jacobian eigenvalues
@@ -34,9 +36,12 @@ class FixedPoint:
 
 @dataclass
 class FixedPointSet:
+    """Container for the fixed points found by a finder (list of FixedPoint)."""
+
     points: list[FixedPoint] = field(default_factory=list)
 
     def coords(self) -> np.ndarray:
+        """Stack all fixed-point coordinates into an (n_points, M) array."""
         return np.stack([p.z for p in self.points]) if self.points else np.empty((0,))
 
     def __len__(self): return len(self.points)
@@ -390,6 +395,8 @@ class AnalyticPLRNNFixedPointFinder:
 
     def find(self, model: NeuralDynamicsModel, *,
              task_input: torch.Tensor | None = None) -> FixedPointSet:
+        """Find fixed points analytically (SCYFI). task_input: optional constant
+        input (input_dim,) folded into the effective bias before solving."""
         if not model.supports_analytic_fixed_points:
             raise RuntimeError(f"{type(model).__name__} does not support analytic fixed points; use a numeric backend.")
         p = model.analytic_parameters(task_input=task_input)  # Allow folding a constant input into the bias
@@ -530,6 +537,7 @@ class ScipyFixedPointFinder:
                     continue
             else:  # approx
                 def obj(z):
+                    """Objective: ½‖F(z) − z‖² (so speed = sqrt(2·fun))."""
                     r = self._rhs_numpy(model, z, ti_np)
                     return 0.5 * np.dot(r, r)
 

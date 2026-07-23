@@ -18,15 +18,19 @@ from ..modeling_utils import NeuralDynamicsModel
 
 @dataclass
 class PCAResult:
+    """PCA fit result: principal axes + mean, with (inverse) projection helpers."""
+
     components: np.ndarray     # (n_components, M)
     mean: np.ndarray           # (M,)
     explained_variance_ratio: np.ndarray
 
     def transform(self, X: np.ndarray) -> np.ndarray:
+        """Project points onto the PCs. X: (N, M) -> (N, n_components)."""
         X = np.asarray(X)
         return (X - self.mean) @ self.components.T
 
     def inverse_transform(self, Y: np.ndarray) -> np.ndarray:
+        """Map PC coordinates back to state space. Y: (N, n_components) -> (N, M)."""
         return np.asarray(Y) @ self.components + self.mean
 
 

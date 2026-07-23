@@ -25,6 +25,8 @@ from .registry import DatasetSpec
 
 
 def cache_root() -> Path:
+    """Dataset cache directory: $NEURALRNN_CACHE or ~/.cache/neuralrnn/datasets
+    (created if missing)."""
     root = os.environ.get("NEURALRNN_CACHE")
     base = Path(root) if root else Path.home() / ".cache" / "neuralrnn" / "datasets"
     base.mkdir(parents=True, exist_ok=True)

@@ -663,6 +663,7 @@ def animate_trajectories_3d(
         ax.legend()
 
     def init():
+        """FuncAnimation init: set 3D axes limits/labels; return artists."""
         ax.set_xlim(mins[0] - margin[0], maxs[0] + margin[0])
         ax.set_ylim(mins[1] - margin[1], maxs[1] + margin[1])
         ax.set_zlim(mins[2] - margin[2], maxs[2] + margin[2])
@@ -672,6 +673,7 @@ def animate_trajectories_3d(
         return lines
 
     def update(frame):
+        """Rotate the camera and refresh all projected trajectories."""
         azim = (frame * step) % 360
         ax.view_init(elev=elev, azim=azim)
         for i, proj in enumerate(projected):
@@ -774,6 +776,7 @@ def animate_trajectory_progression(
         ax.legend(fontsize=8)
 
     def init():
+        """FuncAnimation init: set axes limits/labels; return artists."""
         if projection == "3d":
             ax.set_xlim(mins[0] - margin[0], maxs[0] + margin[0])
             ax.set_ylim(mins[1] - margin[1], maxs[1] + margin[1])
@@ -787,6 +790,7 @@ def animate_trajectory_progression(
         return trail_lines + head_lines
 
     def update(frame):
+        """Reveal one more timestep of every trajectory per frame."""
         # Each frame reveals one more timestep
         t = int(frame * max_len / n_frames)
         t = max(1, min(t, max_len))

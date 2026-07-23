@@ -50,11 +50,14 @@ def _kfold_indices(n: int, k: int, seed: int = 0) -> list[tuple[np.ndarray, np.n
 
 @dataclass
 class CVResult:
+    """Cross-validation result for one hyperparameter config."""
+
     config: dict
     outer_val_losses: list[float] = field(default_factory=list)
 
     @property
     def mean_val_loss(self) -> float:
+        """Mean validation loss across outer folds (NaN when empty)."""
         return float(np.mean(self.outer_val_losses)) if self.outer_val_losses else float("nan")
 
 

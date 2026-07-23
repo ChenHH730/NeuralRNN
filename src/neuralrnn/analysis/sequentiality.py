@@ -112,8 +112,10 @@ def weight_profile_by_peak_order(
     weight = np.asarray(weight)
     peak_times = np.asarray(peak_times)
     M = weight.shape[0]
-    assert weight.shape == (M, M)
-    assert peak_times.shape == (M,)
+    assert weight.shape == (M, M), \
+        f"weight must be square, got shape {weight.shape}"
+    assert peak_times.shape == (M,), \
+        f"peak_times must have shape ({M},), got {peak_times.shape}"
 
     sort_idx = np.argsort(peak_times)
     inv_order = np.argsort(sort_idx)
@@ -156,7 +158,8 @@ def split_ei_weight_submatrices(
     weight = np.asarray(weight)
     ei_mask = np.asarray(ei_mask)
     M = weight.shape[0]
-    assert ei_mask.shape == (M,)
+    assert ei_mask.shape == (M,), \
+        f"ei_mask must have shape ({M},), got {ei_mask.shape}"
     e_idx = np.where(ei_mask > 0)[0]
     i_idx = np.where(ei_mask < 0)[0]
     return {

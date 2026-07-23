@@ -88,6 +88,7 @@ class ConstrainedRNNConfig(CTRNNConfig):
         self.out_mask = out_mask
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize, converting mask arrays to JSON-safe nested lists."""
         d = super().to_dict()
         d["rec_mask"] = _mask_to_list(d.get("rec_mask"))
         d["in_mask"] = _mask_to_list(d.get("in_mask"))

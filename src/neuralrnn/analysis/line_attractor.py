@@ -39,14 +39,17 @@ class LineAttractorResult:
 
     @property
     def distances(self) -> np.ndarray:
+        """Cumulative along-line distance of each point (n_points,)."""
         return np.array([p.distance for p in self.points])
 
     @property
     def speeds(self) -> np.ndarray:
+        """Speed ‖F(z) − z‖ of each point (n_points,)."""
         return np.array([p.speed for p in self.points])
 
     @property
     def coords(self) -> np.ndarray:
+        """Stacked point coordinates (n_points, M)."""
         if not self.points:
             return np.empty((0,))
         return np.stack([p.z for p in self.points])
@@ -144,6 +147,7 @@ def walk_line_attractor(
     ctx = context_input.to(device)
 
     def rhs_norm_sq(z_np):
+        """½‖F(z) − z‖² at z (numpy (M,) -> float), under the context input."""
         z_t = torch.as_tensor(z_np, dtype=torch.float32, device=device).unsqueeze(0)
         xin = ctx.unsqueeze(0)
         with torch.no_grad():
@@ -152,6 +156,7 @@ def walk_line_attractor(
         return 0.5 * float((diff ** 2).sum())
 
     def rhs_jacobian(z_np):
+        """Jacobian of F(z) − z at z: J_F − I (numpy (M,) -> (M, M))."""
         z_t = torch.as_tensor(z_np, dtype=torch.float32, device=device)
         xin = ctx.unsqueeze(0)
         J = model.jacobian(z_t, inputs=xin).cpu().numpy()

@@ -36,6 +36,17 @@ def _make_z0_lift(config, latent_dim: int):
 
 @register_model("shallow_plrnn")
 class ShallowPLRNNModel(NeuralDynamicsModel):
+    """Shallow piecewise-linear RNN (PLRNN) for dynamical systems reconstruction.
+
+    Single-step update (z: latent state (B, M), x: external input (B, K)):
+
+        z_t = A ⊙ z + W1 @ relu(W2 @ z + h2) + h1 [+ C @ x_t]
+
+    with diagonal A (M,), W1 (M, L), W2 (L, M), h1 (M,), h2 (L,), C (M, K).
+    The piecewise-linear ReLU nonlinearity makes the Jacobian and fixed points
+    analytic (see jacobian / analytic_parameters). Readout observes the first
+    output_dim latent units (identity observation; B = [I_N | 0] when M > N).
+    """
     config_class = ShallowPLRNNConfig
 
     def __init__(self, config: ShallowPLRNNConfig) -> None:
@@ -68,6 +79,7 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
 
     # ---------------- hard contract ----------------
     def recurrence(self, x_t, z_prev, *, inputs=None):
+        """Single PLRNN step. x_t: (B, K) or None, z_prev: (B, M) -> z_t: (B, M)."""
         # PLRNN is defined by a piecewise-linear ReLU nonlinearity; changing it
         # would invalidate the analytic Jacobian / fixed-point machinery below.
         z = self.A * z_prev + torch.relu(z_prev @ self.W2.T + self.h2) @ self.W1.T + self.h1
@@ -76,6 +88,7 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
         return z
 
     def readout(self, z_t):
+        """Identity observation of the first output_dim latent units. (B, M) -> (B, N)."""
         # observation == "identity": directly observe latent state (standard DSR setting).
         # When output_dim < latent_dim (M > N DSR setting), observations are the first
         # output_dim latent units, matching the reference B = [I_N | 0] readout.
@@ -84,6 +97,7 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
     # ---------------- analytic analysis support ----------------
     @property
     def supports_analytic_fixed_points(self) -> bool:
+        """This family has a closed-form Jacobian / fixed-point solver (scy_fi)."""
         return True
 
     def jacobian(self, z: torch.Tensor, *, inputs=None) -> torch.Tensor:
@@ -184,6 +198,12 @@ class DendPLRNNModel(NeuralDynamicsModel):
         return groups
 
     def init_state_from_obs(self, x0: torch.Tensor) -> torch.Tensor:
+        """Latent z0 from the first observation x0: (B, N) -> (B, M).
+
+        With learn_z0 a trained lift B (N, M) is applied, then the observed
+        dims are hard-set to x0 (reference Z0Model); otherwise falls back to
+        the base-class identity lift.
+        """
         # Reference Z0Model: learned lift, then hard-set the observed dims
         if self.B is not None:
             z = x0 @ self.B
@@ -209,6 +229,11 @@ class DendPLRNNModel(NeuralDynamicsModel):
         return be.sum(dim=-1)
 
     def recurrence(self, x_t, z_prev, *, inputs=None):
+        """Single dendPLRNN step. x_t: (B, K) or None, z_prev: (B, M) -> z_t: (B, M).
+
+        z_t = A ⊙ z + basis(z) @ Wᵀ + h [+ C @ x_t]; with clip_range and no
+        clipping basis, states are hard-clamped to ±clip_range (reference behavior).
+        """
         z = self.A * z_prev + self._basis(z_prev) @ self.W.t() + self.h
         if self.C is not None and x_t is not None:
             z = z + x_t @ self.C.t()
@@ -219,11 +244,13 @@ class DendPLRNNModel(NeuralDynamicsModel):
         return z
 
     def readout(self, z_t):
+        """Identity observation of the first output_dim latent units. (B, M) -> (B, N)."""
         # Observations are the first output_dim latent units when output_dim < latent_dim.
         return z_t[..., :self.config.output_dim]
 
     @property
     def supports_analytic_fixed_points(self) -> bool:
+        """This family has a closed-form Jacobian / fixed-point solver (scy_fi)."""
         return True
 
     def jacobian(self, z: torch.Tensor, *, inputs=None) -> torch.Tensor:
@@ -348,6 +375,12 @@ class ALRNNModel(NeuralDynamicsModel):
         return groups
 
     def init_state_from_obs(self, x0: torch.Tensor) -> torch.Tensor:
+        """Latent z0 from the first observation x0: (B, N) -> (B, M).
+
+        With learn_z0 a trained lift B (N, M) is applied, then the observed
+        dims are hard-set to x0 (AL-RNN reference); otherwise falls back to
+        the base-class identity lift.
+        """
         # AL-RNN reference: z0 = x0 @ B, then hard-set the observed dims
         if self.B is not None:
             z = x0 @ self.B
@@ -357,10 +390,12 @@ class ALRNNModel(NeuralDynamicsModel):
 
     @property
     def n_linear(self) -> int:
+        """Number of linear (identity-activated) latent units (M - P)."""
         return self.config.n_linear
 
     @property
     def n_relu(self) -> int:
+        """Number of ReLU-activated latent units (P)."""
         return self.config.latent_dim - self.config.n_linear
 
     def _phi_star(self, z: torch.Tensor) -> torch.Tensor:
@@ -373,6 +408,12 @@ class ALRNNModel(NeuralDynamicsModel):
         return torch.cat([linear_part, nonlinear_part], dim=-1)
 
     def recurrence(self, x_t, z_prev, *, inputs=None):
+        """Single ALRNN step. x_t: (B, K) or None, z_prev: (B, M) -> z_t: (B, M).
+
+        z_t = A ⊙ z + W @ φ*(z) + h [+ C @ x_t], with φ* keeping the first
+        M-P units linear and ReLU-activating the last P; states are clamped
+        to ±clip_range when clip_range is set (reference behavior).
+        """
         z = self.A * z_prev + self._phi_star(z_prev) @ self.W.t() + self.h
         if self.C is not None and x_t is not None:
             z = z + x_t @ self.C.t()
@@ -381,11 +422,13 @@ class ALRNNModel(NeuralDynamicsModel):
         return z
 
     def readout(self, z_t):
+        """Identity observation of the first output_dim latent units. (B, M) -> (B, N)."""
         # Observations are the first output_dim latent units when output_dim < latent_dim.
         return z_t[..., :self.config.output_dim]
 
     @property
     def supports_analytic_fixed_points(self) -> bool:
+        """This family has a closed-form Jacobian / fixed-point solver (scy_fi)."""
         return True
 
     def jacobian(self, z: torch.Tensor, *, inputs=None) -> torch.Tensor:

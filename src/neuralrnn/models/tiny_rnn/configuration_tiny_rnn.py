@@ -67,4 +67,5 @@ class TinyRNNConfig(NeuralRNNConfig):
 
     @property
     def torch_dtype(self):
+        """The torch dtype matching ``self.dtype`` ("float32"/"float64")."""
         return torch.float32 if self.dtype == "float32" else torch.float64

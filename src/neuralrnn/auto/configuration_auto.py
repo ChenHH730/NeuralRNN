@@ -14,7 +14,9 @@ CONFIG_REGISTRY: dict[str, type[NeuralRNNConfig]] = {}
 
 
 def register_config(model_type: str):
+    """Class decorator: register a NeuralRNNConfig subclass under ``model_type``."""
     def deco(cls: type[NeuralRNNConfig]):
+        """Register ``cls`` in CONFIG_REGISTRY and return it unchanged."""
         CONFIG_REGISTRY[model_type] = cls
         return cls
     return deco
@@ -47,6 +49,8 @@ class AutoConfig:
 
     @staticmethod
     def from_pretrained(path: str) -> NeuralRNNConfig:
+        """Load a config from a checkpoint dir (or a config.json path),
+        dispatching on its ``model_type`` field."""
         path = os.fspath(path)
         model_type = _read_model_type(path)
         _ensure_config_loaded(model_type)

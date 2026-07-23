@@ -138,7 +138,10 @@ class BartoloMonkeyDataset(BaseDataset):
             else:
                 raise ValueError(f"Unknown filter_block_type: {self.filter_block_type}")
 
-            assert trial_filter.sum() % trial_num == 0
+            assert trial_filter.sum() % trial_num == 0, (
+                f"Filtered trials ({trial_filter.sum()}) are not a multiple of "
+                f"trial_num ({trial_num}); check filter_block_type="
+                f"{self.filter_block_type!r} against the raw data.")
             episode_num = trial_filter.sum() // trial_num
 
             act = act[trial_filter].reshape((episode_num, trial_num))

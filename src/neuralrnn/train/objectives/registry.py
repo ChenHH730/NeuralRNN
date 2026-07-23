@@ -17,6 +17,7 @@ OBJECTIVE_REGISTRY: dict[str, type["Objective"]] = {}
 def register_objective(name: str):
     """Class decorator that registers an Objective subclass under ``name``."""
     def decorator(cls: type["Objective"]) -> type["Objective"]:
+        """Register ``cls`` under ``name`` (idempotent for the same class)."""
         existing = OBJECTIVE_REGISTRY.get(name)
         if existing is not None:
             # Idempotent re-registration: tools that re-execute modules

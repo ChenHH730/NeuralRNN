@@ -114,6 +114,11 @@ class ConstrainedRNNModel(CTRNNModel):
         return W
 
     def recurrence(self, x_t, z_prev, *, inputs=None):
+        """Single Euler step with hard masks. x_t: (B, input_dim), z_prev: (B, M) -> z_t: (B, M).
+
+        Same three-mode update as CTRNNModel, except the recurrent and input
+        weights are masked (and optionally Dale-constrained) before use.
+        """
         W = self._recurrent_weight()
         in_weight = self.input2h.weight
         if self.in_mask is not None:
@@ -139,6 +144,7 @@ class ConstrainedRNNModel(CTRNNModel):
         return z
 
     def readout(self, z_t):
+        """Masked linear readout. z_t: (B, M) -> y_t: (B, output_dim)."""
         out_weight = self.readout_layer.weight
         if self.out_mask is not None:
             out_weight = out_weight * self.out_mask.t()

@@ -20,11 +20,19 @@ from ...modeling_utils import NeuralDynamicsModel
 
 @register_objective("variational")
 class VariationalObjective(Objective):
+    """ELBO objective (LFADS paradigm, placeholder — model side not yet ported).
+
+    loss = recon_NLL(rates, targets) + kl_weight * KL. Expects the model to
+    return "rates" (B,T,N) and optionally a scalar "kl" in output.extras.
+    """
+
     def __init__(self, kl_weight: float = 1.0, likelihood: str = "poisson"):
+        """kl_weight: KL annealing weight. likelihood: "poisson" / "gaussian"."""
         self.kl_weight = float(kl_weight)
         self.likelihood = likelihood          # "poisson" / "gaussian"
 
     def _recon_nll(self, rates: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """Reconstruction negative log-likelihood; (B,T,N) tensors -> scalar."""
         if self.likelihood == "poisson":
             # Negative Poisson log-likelihood (rates are intensities)
             return F.poisson_nll_loss(rates, target, log_input=False, full=False,
@@ -32,6 +40,8 @@ class VariationalObjective(Objective):
         return F.mse_loss(rates, target)
 
     def compute_loss(self, model: NeuralDynamicsModel, batch):
+        """Batch keys: "inputs" (B,T,K), "targets" (B,T,N).
+        Returns (loss, {"loss", "recon", "kl", "kl_weight"})."""
         out = model(batch["inputs"])
         extras = out.extras or {}
         if "rates" not in extras:

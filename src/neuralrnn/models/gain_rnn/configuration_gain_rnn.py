@@ -159,6 +159,7 @@ class GainRNNConfig(ConstrainedRNNConfig):
         self.h0_init = h0_init
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize, converting per-neuron parameter arrays to JSON-safe lists."""
         d = super().to_dict()
         d["gain_init"] = _param_to_list(d.get("gain_init"))
         d["bias_init"] = _param_to_list(d.get("bias_init"))
@@ -299,6 +300,7 @@ class StpRNNConfig(GainRNNConfig):
         self.init_seed = init_seed
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize, converting per-neuron STP parameter arrays to JSON-safe lists."""
         d = super().to_dict()
         d["stp_tau_x"] = _param_to_list(d.get("stp_tau_x"))
         d["stp_tau_u"] = _param_to_list(d.get("stp_tau_u"))

@@ -305,10 +305,12 @@ def _delaygo_core(config, mode, anti_response, **kwargs):
 
 
 def delaygo(config, mode, **kwargs):
+    """Trial generator for the ``delaygo`` rule (dispatched by generate_trials)."""
     return _delaygo_core(config, mode, False, **kwargs)
 
 
 def delayanti(config, mode, **kwargs):
+    """Trial generator for the ``delayanti`` rule (dispatched by generate_trials)."""
     return _delaygo_core(config, mode, True, **kwargs)
 
 
@@ -359,10 +361,12 @@ def _reactgo_core(config, mode, anti_response, **kwargs):
 
 
 def reactgo(config, mode, **kwargs):
+    """Trial generator for the ``reactgo`` rule (dispatched by generate_trials)."""
     return _reactgo_core(config, mode, False, **kwargs)
 
 
 def reactanti(config, mode, **kwargs):
+    """Trial generator for the ``reactanti`` rule (dispatched by generate_trials)."""
     return _reactgo_core(config, mode, True, **kwargs)
 
 
@@ -418,10 +422,12 @@ def _fdgo_core(config, mode, anti_response, **kwargs):
 
 
 def fdgo(config, mode, **kwargs):
+    """Trial generator for the ``fdgo`` rule (dispatched by generate_trials)."""
     return _fdgo_core(config, mode, False, **kwargs)
 
 
 def fdanti(config, mode, **kwargs):
+    """Trial generator for the ``fdanti`` rule (dispatched by generate_trials)."""
     return _fdgo_core(config, mode, True, **kwargs)
 
 
@@ -536,14 +542,17 @@ def _contextdm(config, mode, attend_mod, **kwargs):
 
 
 def contextdm1(config, mode, **kwargs):
+    """Trial generator for the ``contextdm1`` rule (dispatched by generate_trials)."""
     return _contextdm(config, mode, 1, **kwargs)
 
 
 def contextdm2(config, mode, **kwargs):
+    """Trial generator for the ``contextdm2`` rule (dispatched by generate_trials)."""
     return _contextdm(config, mode, 2, **kwargs)
 
 
 def multidm(config, mode, **kwargs):
+    """Trial generator for the ``multidm`` rule (dispatched by generate_trials)."""
     return _contextdm(config, mode, 'both', **kwargs)
 
 
@@ -620,10 +629,12 @@ def _dm(config, mode, stim_mod, **kwargs):
 
 
 def dm1(config, mode, **kwargs):
+    """Trial generator for the ``dm1`` rule (dispatched by generate_trials)."""
     return _dm(config, mode, 1, **kwargs)
 
 
 def dm2(config, mode, **kwargs):
+    """Trial generator for the ``dm2`` rule (dispatched by generate_trials)."""
     return _dm(config, mode, 2, **kwargs)
 
 
@@ -709,10 +720,12 @@ def _delaydm(config, mode, stim_mod, **kwargs):
 
 
 def delaydm1(config, mode, **kwargs):
+    """Trial generator for the ``delaydm1`` rule (dispatched by generate_trials)."""
     return _delaydm(config, mode, 1, **kwargs)
 
 
 def delaydm2(config, mode, **kwargs):
+    """Trial generator for the ``delaydm2`` rule (dispatched by generate_trials)."""
     return _delaydm(config, mode, 2, **kwargs)
 
 
@@ -819,14 +832,17 @@ def _contextdelaydm(config, mode, attend_mod, **kwargs):
 
 
 def contextdelaydm1(config, mode, **kwargs):
+    """Trial generator for the ``contextdelaydm1`` rule (dispatched by generate_trials)."""
     return _contextdelaydm(config, mode, 1, **kwargs)
 
 
 def contextdelaydm2(config, mode, **kwargs):
+    """Trial generator for the ``contextdelaydm2`` rule (dispatched by generate_trials)."""
     return _contextdelaydm(config, mode, 2, **kwargs)
 
 
 def multidelaydm(config, mode, **kwargs):
+    """Trial generator for the ``multidelaydm`` rule (dispatched by generate_trials)."""
     return _contextdelaydm(config, mode, 'both', **kwargs)
 
 
@@ -906,10 +922,12 @@ def _dms(config, mode, matchnogo, **kwargs):
 
 
 def dmsgo(config, mode, **kwargs):
+    """Trial generator for the ``dmsgo`` rule (dispatched by generate_trials)."""
     return _dms(config, mode, 0, **kwargs)
 
 
 def dmsnogo(config, mode, **kwargs):
+    """Trial generator for the ``dmsnogo`` rule (dispatched by generate_trials)."""
     return _dms(config, mode, 1, **kwargs)
 
 
@@ -995,10 +1013,12 @@ def _dmc(config, mode, matchnogo, **kwargs):
 
 
 def dmcgo(config, mode, **kwargs):
+    """Trial generator for the ``dmcgo`` rule (dispatched by generate_trials)."""
     return _dmc(config, mode, 0, **kwargs)
 
 
 def dmcnogo(config, mode, **kwargs):
+    """Trial generator for the ``dmcnogo`` rule (dispatched by generate_trials)."""
     return _dmc(config, mode, 1, **kwargs)
 
 
@@ -1141,6 +1161,11 @@ class MultitaskYangTask(Task):
         self.kwargs = kwargs
 
     def generate_trials(self):
+        """Generate trials for the configured rule -> (inputs, targets, mask, conditions).
+
+        conditions are per-trial dicts with the rule name plus the unified
+        fields n_steps / is_catch.
+        """
         import torch
         inputs, targets, mask, conditions = generate_trials(
             self.rule, n_trials=self.n_trials, mode=self.mode,

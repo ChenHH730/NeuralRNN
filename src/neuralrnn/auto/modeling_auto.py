@@ -44,6 +44,7 @@ _LAZY_MODULES: dict[str, str] = {
 def register_model(model_type: str):
     """Decorator: register a model class in MODEL_REGISTRY and its config class in CONFIG_REGISTRY."""
     def deco(cls: type[NeuralDynamicsModel]):
+        """Register ``cls`` (and its config_class) in the registries; returns cls unchanged."""
         MODEL_REGISTRY[model_type] = cls
         if getattr(cls, "config_class", None) is not None:
             CONFIG_REGISTRY[model_type] = cls.config_class
@@ -69,11 +70,13 @@ class AutoModel:
 
     @staticmethod
     def from_config(config) -> NeuralDynamicsModel:
+        """Instantiate the model class registered under ``config.model_type``."""
         _ensure_loaded(config.model_type)
         return MODEL_REGISTRY[config.model_type](config)
 
     @staticmethod
     def from_pretrained(path: str, *, map_location: str = "cpu") -> NeuralDynamicsModel:
+        """Load config + weights from a checkpoint dir saved by save_pretrained."""
         path = os.fspath(path)
         config = AutoConfig.from_pretrained(path)
         _ensure_loaded(config.model_type)

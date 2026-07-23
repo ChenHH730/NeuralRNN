@@ -20,11 +20,18 @@ from ...modeling_utils import NeuralDynamicsModel
 
 @register_objective("supervised")
 class SupervisedObjective(Objective):
+    """Supervised task loss (Paradigm A). See module docstring for batch shapes."""
+
     def __init__(self, task_type: str = "classification"):
-        assert task_type in ("classification", "regression")
+        """task_type: "classification" (masked CE, integer targets (B,T)) or
+        "regression" (masked MSE, targets (B,T,O))."""
+        assert task_type in ("classification", "regression"), \
+            f"task_type must be 'classification' or 'regression', got {task_type!r}"
         self.task_type = task_type
 
     def compute_loss(self, model: NeuralDynamicsModel, batch):
+        """Batch keys: "inputs" (B,T,K), "targets" ((B,T) or (B,T,O)),
+        optional "mask" (B,T). Returns (loss, {"loss", ["acc"]})."""
         out = model(batch["inputs"])           # DynamicsModelOutput
         y = out.outputs                         # (B,T,output_dim)
         target = batch["targets"]

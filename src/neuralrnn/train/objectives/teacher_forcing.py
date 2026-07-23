@@ -42,6 +42,13 @@ def generalized_teacher_forcing(z_pred: torch.Tensor, z_obs: torch.Tensor,
 
 @register_objective("teacher_forcing")
 class TeacherForcingObjective(Objective):
+    """Generalized teacher forcing (GTF) objective for DSR (Paradigm B, PLRNN family).
+
+    Rolls the model step by step, blending each predicted state with the
+    observation (z = α·x_obs + (1−α)·z_pred), and minimizes MSE between the
+    readout of the rollout and the observations.
+    """
+
     def __init__(self, alpha: float = 0.1, forcing_interval: int | None = None,
                  tf_noise: float = 0.0):
         """
@@ -60,6 +67,7 @@ class TeacherForcingObjective(Objective):
         self.tf_noise = float(tf_noise)
 
     def set_forcing(self, alpha: float) -> None:
+        """Set the GTF blending strength (called by Trainer for annealing)."""
         self.alpha = float(alpha)
 
     def _force(self, z_pred: torch.Tensor, x_obs_t: torch.Tensor) -> torch.Tensor:
@@ -73,6 +81,9 @@ class TeacherForcingObjective(Objective):
         return forced
 
     def compute_loss(self, model: NeuralDynamicsModel, batch):
+        """Batch keys: "activity" (B,T,N) observations, optional "inputs"
+        (B,T,K) external inputs. Returns (loss, {"loss", "alpha"}) where loss
+        is the one-step-ahead MSE between readout(rollout) and observations."""
         X = batch["activity"]               # (B,T,N) observations (= latent trajectory, DSR identity)
         S = batch.get("inputs")             # (B,T,K) external inputs or None (autonomous)
         B, T, N = X.shape

@@ -4,7 +4,6 @@ Covers:
   - linear algebra helpers (Gram-Schmidt, overlap, correlation, angles,
     trajectory flattening, device mapping)
   - population structure helpers (connectivity vectors, GMM, means/covariances)
-  - manifold trajectory-to-position/velocity conversion
   - reusable loss functions
   - perturbation application and choice computation
   - DSR state-space divergence metrics
@@ -17,7 +16,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from neuralrnn import AutoConfig, AutoModel
-from neuralrnn.analysis import linalg_utils, population_structure, manifold
+from neuralrnn.analysis import linalg_utils, population_structure
 from neuralrnn.train.losses import loss_functions
 from neuralrnn.train.losses.metrics import accuracy_general
 from neuralrnn.analysis import perturbation, stsp_metrics
@@ -108,21 +107,6 @@ class TestPopulationStructure:
         covs = population_structure.compute_population_covariances(X, labels)
         assert len(covs) == means.shape[0]
         assert all(c.shape == (d, d) for c in covs)
-
-
-class TestManifold:
-    def test_trajectories_to_pos_vel(self):
-        traj = np.random.randn(30, 4)
-        pos, vel = manifold.trajectories_to_pos_vel(traj)
-        assert pos.shape == (29, 4)
-        assert vel.shape == (29, 4)
-        assert np.allclose(vel, np.diff(traj, axis=0))
-
-    def test_trajectories_to_pos_vel_3d(self):
-        traj = np.random.randn(5, 10, 4)
-        pos, vel = manifold.trajectories_to_pos_vel(traj)
-        assert pos.shape == (49, 4)
-        assert vel.shape == (49, 4)
 
 
 class TestLossFunctions:

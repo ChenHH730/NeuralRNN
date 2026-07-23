@@ -93,10 +93,19 @@ class StandardScaler:
         self.std_ = None
 
     def fit(self, x: torch.Tensor) -> "StandardScaler":
+        """Compute per-feature mean/std over dim 0. x: (N, ...) -> stats (1, ...)."""
         self.mean_ = x.mean(dim=0, keepdim=True)
         self.std_ = x.std(dim=0, keepdim=True).clamp_min(1e-8)
         return self
 
-    def transform(self, x): return (x - self.mean_) / self.std_
-    def inverse_transform(self, x): return x * self.std_ + self.mean_
-    def fit_transform(self, x): return self.fit(x).transform(x)
+    def transform(self, x):
+        """z-score normalize with the fitted statistics (broadcast over dim 0)."""
+        return (x - self.mean_) / self.std_
+
+    def inverse_transform(self, x):
+        """Undo :meth:`transform`."""
+        return x * self.std_ + self.mean_
+
+    def fit_transform(self, x):
+        """Fit on ``x`` then return its normalized version."""
+        return self.fit(x).transform(x)

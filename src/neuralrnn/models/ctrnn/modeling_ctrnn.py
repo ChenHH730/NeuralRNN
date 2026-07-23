@@ -23,6 +23,17 @@ from .configuration_ctrnn import CTRNNConfig, EIRNNConfig
 
 @register_model("ctrnn")
 class CTRNNModel(NeuralDynamicsModel):
+    """Continuous-time RNN with Euler discretization (Paradigm A reference implementation).
+
+    Single-step update (z: latent state, x: external input, f: activation, α = config.alpha):
+
+        pre = W_in @ x_t + W_rec @ u + b           (u = f(z) if nonlinearity_mode="rate" else z)
+        z_t = (1-α)·z + α·f(pre)                    (pre_activation; post_blend applies f after
+                                                     the blend, rate applies no f on the update)
+
+    Shapes: x_t (B, input_dim) -> z_t (B, latent_dim); readout z_t -> y_t (B, output_dim).
+    With dt=None (α=1) this reduces to the discrete-time vanilla RNN.
+    """
     config_class = CTRNNConfig
 
     def __init__(self, config: CTRNNConfig) -> None:
@@ -64,6 +75,7 @@ class CTRNNModel(NeuralDynamicsModel):
         }
 
     def init_state(self, batch_size, device="cpu"):
+        """Initial state z_0 = h0 broadcast to (batch_size, latent_dim)."""
         return self.h0.to(device).expand(batch_size, -1).contiguous()
 
     def _recurrent_weight(self) -> torch.Tensor:
@@ -75,6 +87,11 @@ class CTRNNModel(NeuralDynamicsModel):
 
     # ---------------- hard contract ----------------
     def recurrence(self, x_t, z_prev, *, inputs=None):
+        """Single Euler step. x_t: (B, input_dim), z_prev: (B, M) -> z_t: (B, M).
+
+        Recurrent noise (sigma_rec > 0) is added to the pre-activation in
+        training mode only. See the class docstring for the update equations.
+        """
         W = self._recurrent_weight()
         mode = self.config.nonlinearity_mode
         # "rate": the recurrent matrix reads the firing rate r = f(z); otherwise it reads z.
@@ -100,6 +117,7 @@ class CTRNNModel(NeuralDynamicsModel):
         return z
 
     def readout(self, z_t):
+        """Linear readout. z_t: (B, M) -> y_t: (B, output_dim)."""
         return self.readout_layer(z_t)
 
 @register_model("ei_rnn")

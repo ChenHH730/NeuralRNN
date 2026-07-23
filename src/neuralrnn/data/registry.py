@@ -14,6 +14,7 @@ from typing import Any
 
 @dataclass
 class DatasetSpec:
+    """Registry entry describing a named dataset (see DATASET_REGISTRY)."""
     kind: str                                   # neurogym / timeseries / behavioral / trained_rnn / trajectory
     loader: str | None = None                   # "module:function", returns a dataset object
     url: str | None = None                      # download URL (bare URL / Dataverse / Zenodo / OSF)

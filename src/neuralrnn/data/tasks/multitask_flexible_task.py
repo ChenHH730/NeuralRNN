@@ -61,6 +61,13 @@ def _get_dist(original_dist):
 
 
 class Trial(object):
+    """Trial container for the flexible (Driscoll 2024) task battery.
+
+    Holds the input tensor x (tdim, batch, n_input), target tensor y
+    (tdim, batch, n_output), and response locations y_loc, filled in by the
+    per-rule generator functions below via the add_* helpers.
+    """
+
     def __init__(self, config, tdim, batch_size):
         self.float_type = 'float32'
         self.config = config
@@ -76,6 +83,7 @@ class Trial(object):
         self._sigma_x = config['sigma_x'] * np.sqrt(2 / config['alpha'])
 
     def expand(self, var):
+        """Broadcast a scalar/None parameter to a per-trial list of length batch_size."""
         if var is None:
             return [None] * self.batch_size
         if not hasattr(var, '__iter__'):
@@ -83,6 +91,12 @@ class Trial(object):
         return var
 
     def add(self, loc_type, locs=None, ons=None, offs=None, strengths=1, mods=None):
+        """Write an epoch into x/y.
+
+        loc_type: "fix_in" (fixation input), "stim" (2-channel ring stimulus in
+        modality ``mods``), "fix_out" (fixation target), "out" (ring response
+        target). ons/offs/strengths/mods/locs accept scalars or per-trial lists.
+        """
         ons = self.expand(ons)
         offs = self.expand(offs)
         strengths = self.expand(strengths)
@@ -103,9 +117,13 @@ class Trial(object):
                 raise ValueError('Unknown loc_type')
 
     def add_x_noise(self):
+        """Add i.i.d. Gaussian input noise (std = sigma_x * sqrt(2/alpha))."""
         self.x += self.config['rng'].randn(*self.x.shape) * self._sigma_x
 
     def add_c_mask(self, pre_offs, post_ons):
+        """Build the loss mask c_mask (tdim*batch, n_output): 0 before 100 ms,
+        1 from 100 ms until pre_offs, 0 again until post_ons, then 5;
+        the fixation channel is weighted 2x."""
         pre_on = int(100 / self.dt)
         pre_offs = self.expand(pre_offs)
         post_ons = self.expand(post_ons)
@@ -117,6 +135,7 @@ class Trial(object):
         self.c_mask = c_mask.reshape((self.tdim * self.batch_size, self.n_output))
 
     def add_rule(self, rule, on=None, off=None, strength=1.0):
+        """Activate the one-hot rule input channel for ``rule`` during [on, off)."""
         if isinstance(rule, int):
             ind_rule = self.config['rule_start'] + rule
         else:
@@ -124,9 +143,11 @@ class Trial(object):
         self.x[on:off, :, ind_rule] = strength
 
     def add_x_loc(self, x_loc):
+        """Encode a ring angle as (sin, cos) stimulus channels."""
         return np.array([np.sin(x_loc), np.cos(x_loc)])
 
     def add_y_loc(self, y_loc):
+        """Encode a ring angle as (sin, cos) response channels."""
         return np.array([np.sin(y_loc), np.cos(y_loc)])
 
 
@@ -185,10 +206,12 @@ def _fdgo_core(config, mode, anti_response, **kwargs):
 
 
 def fdgo(config, mode, **kwargs):
+    """Trial generator for the ``fdgo`` rule (dispatched by generate_trials)."""
     return _fdgo_core(config, mode, False, **kwargs)
 
 
 def fdanti(config, mode, **kwargs):
+    """Trial generator for the ``fdanti`` rule (dispatched by generate_trials)."""
     return _fdgo_core(config, mode, True, **kwargs)
 
 
@@ -251,10 +274,12 @@ def _delaygo_core(config, mode, anti_response, **kwargs):
 
 
 def delaygo(config, mode, **kwargs):
+    """Trial generator for the ``delaygo`` rule (dispatched by generate_trials)."""
     return _delaygo_core(config, mode, False, **kwargs)
 
 
 def delayanti(config, mode, **kwargs):
+    """Trial generator for the ``delayanti`` rule (dispatched by generate_trials)."""
     return _delaygo_core(config, mode, True, **kwargs)
 
 
@@ -308,10 +333,12 @@ def _reactgo_core(config, mode, anti_response, **kwargs):
 
 
 def reactgo(config, mode, **kwargs):
+    """Trial generator for the ``reactgo`` rule (dispatched by generate_trials)."""
     return _reactgo_core(config, mode, False, **kwargs)
 
 
 def reactanti(config, mode, **kwargs):
+    """Trial generator for the ``reactanti`` rule (dispatched by generate_trials)."""
     return _reactgo_core(config, mode, True, **kwargs)
 
 
@@ -412,10 +439,12 @@ def _delaydm(config, mode, stim_mod, **kwargs):
 
 
 def delaydm1(config, mode, **kwargs):
+    """Trial generator for the ``delaydm1`` rule (dispatched by generate_trials)."""
     return _delaydm(config, mode, 1, **kwargs)
 
 
 def delaydm2(config, mode, **kwargs):
+    """Trial generator for the ``delaydm2`` rule (dispatched by generate_trials)."""
     return _delaydm(config, mode, 2, **kwargs)
 
 
@@ -524,14 +553,17 @@ def _contextdelaydm(config, mode, attend_mod, **kwargs):
 
 
 def contextdelaydm1(config, mode, **kwargs):
+    """Trial generator for the ``contextdelaydm1`` rule (dispatched by generate_trials)."""
     return _contextdelaydm(config, mode, 1, **kwargs)
 
 
 def contextdelaydm2(config, mode, **kwargs):
+    """Trial generator for the ``contextdelaydm2`` rule (dispatched by generate_trials)."""
     return _contextdelaydm(config, mode, 2, **kwargs)
 
 
 def multidelaydm(config, mode, **kwargs):
+    """Trial generator for the ``multidelaydm`` rule (dispatched by generate_trials)."""
     return _contextdelaydm(config, mode, 'both', **kwargs)
 
 
@@ -616,10 +648,12 @@ def _dms(config, mode, matchnogo, **kwargs):
 
 
 def dmsgo(config, mode, **kwargs):
+    """Trial generator for the ``dmsgo`` rule (dispatched by generate_trials)."""
     return _dms(config, mode, 0, **kwargs)
 
 
 def dmsnogo(config, mode, **kwargs):
+    """Trial generator for the ``dmsnogo`` rule (dispatched by generate_trials)."""
     return _dms(config, mode, 1, **kwargs)
 
 
@@ -705,10 +739,12 @@ def _dmc(config, mode, matchnogo, **kwargs):
 
 
 def dmcgo(config, mode, **kwargs):
+    """Trial generator for the ``dmcgo`` rule (dispatched by generate_trials)."""
     return _dmc(config, mode, 0, **kwargs)
 
 
 def dmcnogo(config, mode, **kwargs):
+    """Trial generator for the ``dmcnogo`` rule (dispatched by generate_trials)."""
     return _dmc(config, mode, 1, **kwargs)
 
 
@@ -838,6 +874,11 @@ class MultitaskFlexibleTask(Task):
         self.kwargs = kwargs
 
     def generate_trials(self):
+        """Generate trials for the configured rule -> (inputs, targets, mask, conditions).
+
+        conditions are per-trial dicts with the rule name plus the unified
+        fields n_steps / is_catch.
+        """
         import torch
         inputs, targets, mask, conditions = generate_trials(
             self.rule, n_trials=self.n_trials, mode=self.mode,

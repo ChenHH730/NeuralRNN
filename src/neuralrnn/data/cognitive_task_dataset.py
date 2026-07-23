@@ -77,21 +77,25 @@ class CognitiveTaskDataset(BaseDataset):
 
     @property
     def inputs(self) -> torch.Tensor:
+        """All trial inputs (N, T, input_dim). Aligned mode only."""
         self._require_aligned("inputs")
         return self._inputs
 
     @property
     def targets(self) -> torch.Tensor:
+        """All trial targets (N, T) or (N, T, output_dim). Aligned mode only."""
         self._require_aligned("targets")
         return self._targets
 
     @property
     def mask(self) -> torch.Tensor:
+        """Per-timestep loss mask (N, T). Aligned mode only."""
         self._require_aligned("mask")
         return self._mask
 
     @property
     def conditions(self) -> list:
+        """Per-trial condition dicts (length N). Aligned mode only."""
         self._require_aligned("conditions")
         return self._conditions
 

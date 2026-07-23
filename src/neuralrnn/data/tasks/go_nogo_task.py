@@ -41,6 +41,7 @@ class GoNogoTask(Task):
 
     @property
     def n_trials(self):
+        """Total trials = n_values stimulus levels × n_reps repetitions."""
         return int(self.n_values * self.n_reps)
 
     def generate_trials(self):

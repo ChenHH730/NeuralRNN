@@ -64,6 +64,19 @@ def _build_scheduler(optimizer, args: TrainingArguments):
 
 
 class Trainer:
+    """Unified trainer (≈ transformers.Trainer) for all models and objectives.
+
+    Args:
+        model: The model to train (NeuralDynamicsModel).
+        dataset: Training dataset; must provide ``sample_batch() -> dict``.
+        objective: Training objective (compute_loss(model, batch) -> (loss, logs)).
+        args: TrainingArguments (optimizer, lr, max_steps, logging, early stop...).
+        eval_fn: Optional callable(model) -> dict of evaluation metrics
+            (e.g. D_stsp / D_H), run every ``args.eval_every`` steps.
+        post_step_hook: Optional callable(model) invoked after each gradient
+            update (e.g. constraint projection, Dale sign enforcement).
+    """
+
     def __init__(self, model: NeuralDynamicsModel, dataset, objective: Objective,
                  args: TrainingArguments | None = None,
                  eval_fn: Callable[[NeuralDynamicsModel], dict] | None = None,
@@ -230,6 +243,13 @@ class Trainer:
         self._update_plot()
 
     def train(self) -> list[dict]:
+        """Run the training loop for ``args.max_steps`` steps.
+
+        Returns the history list of per-log-step dicts ({"step", "loss", ...}
+        plus eval metrics with "eval": true). Side effects: tqdm progress bar,
+        training_curves.png + history.jsonl/history.json in output_dir (when
+        log_every > 0), final checkpoint via save_pretrained.
+        """
         self.model.train()
         use_dropout = self.args.dropout_rate > 0
         do_file_log = bool(self.args.log_every)
@@ -376,6 +396,7 @@ class Trainer:
 
     # ---- Save/load: reuse the model's save_pretrained (safetensors + json) ----
     def save_checkpoint(self, step: int) -> str:
+        """Save the model to ``output_dir/checkpoint-{step}``; returns the path."""
         path = os.path.join(self.output_dir, f"checkpoint-{step}")
         self.model.save_pretrained(path, metadata={"step": step,
                                                     "training_args": self.args.to_dict()})
@@ -383,7 +404,10 @@ class Trainer:
 
     @torch.no_grad()
     def evaluate(self) -> dict:
+        """Run eval_fn once on the current model and return its metrics dict."""
         if self.eval_fn is None:
-            raise RuntimeError("eval_fn not provided")
+            raise RuntimeError(
+                "evaluate() requires eval_fn; pass eval_fn=callable(model)->dict "
+                "to Trainer(...)")
         self.model.eval()
         return self.eval_fn(self.model)
