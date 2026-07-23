@@ -1,9 +1,7 @@
 """Linear algebra and trajectory utilities for neural dynamics analysis.
 
 All functions are model-agnostic: they operate on numpy arrays or torch
-tensors and never import specific model classes.  Ported from the
-Dubreuil et al. (2022) / Valente et al. (2022) LowrankRNN reference
-codebase (helpers.py).
+tensors and never import specific model classes.
 """
 from __future__ import annotations
 

@@ -1,10 +1,12 @@
 """Line-attractor analysis.
 
-Ported from trainRNNbrain's DynamicSystemAnalyzerCDDM, used to analyze the neural mechanism of persistent
+Used to analyze the neural mechanism of persistent
 activity in tasks such as CDDM. A line attractor is a continuous slow manifold along which the network state
 drifts very slowly (‖RHS‖ ≈ 0), supporting stable maintenance of continuous variables.
 
 Golden rule: works only through the model's public contract (recurrence / jacobian).
+
+Reference: trainRNNbrain, DynamicSystemAnalyzerCDDM
 """
 from __future__ import annotations
 

@@ -1,15 +1,11 @@
 """Fixed point / k-cycle analysis (dual backend).
 
-Golden rule (PORTING_GUIDE contract D): the analysis layer only works through the model's public contract
-(recurrence / jacobian / supports_analytic_fixed_points / analytic_parameters),
-and **never** imports any concrete model classes. Thus any model satisfying the contract can be analyzed by the same analyzer.
-
 Two backends:
-  1) Numeric backend NumericFixedPointFinder — ported from RNN_DynamicalSystemAnalysis.ipynb:
+  1) Numeric backend NumericFixedPointFinder:
      initializes a batch of candidate states in parallel, minimizes ‖F(z) − z‖² (velocity-field norm) with Adam,
      filters by a speed threshold, and removes duplicates.
      Applicable to any model (including the discrete step of continuous CTRNNs).
-  2) Analytic backend AnalyticPLRNNFixedPointFinder — ported from CNS2023_tutorial.ipynb's
+  2) Analytic backend AnalyticPLRNNFixedPointFinder
      scy_fi / main: exploits the piecewise-linear structure of PLRNNs to solve fixed points and k-cycles exactly,
      together with their eigenvalues.
      Only available when model.supports_analytic_fixed_points and analytic_parameters() are implemented.
@@ -51,7 +47,7 @@ class FixedPointSet:
 # Numeric backend (gradient-based, model-agnostic)
 # =========================================================================
 class NumericFixedPointFinder:
-    """Search for fixed points by minimizing the velocity-field norm ‖F(z) − z‖² (nn-brain style)."""
+    """Search for fixed points by minimizing the velocity-field norm ‖F(z) − z‖²."""
 
     def __init__(self, n_candidates: int = 64, n_iters: int = 10000, lr: float = 1e-3,
                  speed_tol: float = 1e-1, dedup_tol: float = 1e-2,
@@ -428,9 +424,9 @@ class AnalyticPLRNNFixedPointFinder:
 # scipy backend (ported from trainRNNbrain DynamicSystemAnalyzer)
 # =========================================================================
 class ScipyFixedPointFinder:
-    """scipy backend: exact root-finding with fsolve + approximate minimization with Powell (ported from trainRNNbrain).
+    """scipy backend: exact root-finding with fsolve + approximate minimization with Powell.
 
-    ⚠️ WARNING: This backend is less stable on CTRNNs (Euler discrete steps) and is not recommended.
+    WARNING: This backend is less stable and is not recommended.
     fsolve's exact mode (mode='exact') often converges to points that are not fixed points, because the
     numerical error introduced by Euler discretization can make an exact RHS(z)=0 solution nonexistent.
     The approx mode (Powell) is more robust but still less reliable than NumericFixedPointFinder
@@ -599,9 +595,7 @@ def find_fixed_points(model: NeuralDynamicsModel, *, backend: str = "auto",
     Backend comparison:
     - numeric:  PyTorch Adam gradient descent on ‖F(z)−z‖² (general, GPU-friendly, recommended)
     - analytic: exact PLRNN solver (PLRNN models only; supports constant task_input)
-    - scipy:    scipy fsolve / Powell (⚠️ less stable, not recommended;
-                fsolve often converges to non-fixed-points under Euler discretization;
-                only try mode='approx' when the numeric backend returns no results)
+    - scipy:    scipy fsolve / Powell (less stable, not recommended);
     """
     if backend == "analytic" or (backend == "auto" and model.supports_analytic_fixed_points):
         return AnalyticPLRNNFixedPointFinder(max_order=max_order, **kwargs).find(

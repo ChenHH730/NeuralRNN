@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "neuralrnn"
-version = "0.3.2.dev0"
+version = "0.3.5.dev0"
 description = "A unified framework for implementing RNN methods in cognitive neuroscience"
 readme = "README.md"
 requires-python = ">=3.9"

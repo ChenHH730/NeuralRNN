@@ -9,31 +9,11 @@ Brings two front-line paradigms under one transformers-style API:
 Core abstraction: every model is a "discrete dynamical system with readout". Implementing only
 `recurrence` and `readout` is enough to plug into the unified Trainer (paradigm differences are
 handled by Objective) and analysis modules.
-
-Quick start
------------
-Unified construction and serialization (≈ transformers):
-    from neuralrnn import AutoConfig, AutoModel
-    cfg = AutoConfig.for_model("shallow_plrnn", input_dim=0, latent_dim=3, output_dim=3,
-                               hidden_dim=50, autonomous=True)
-    model = AutoModel.from_config(cfg)
-    model.save_pretrained("ckpt/"); AutoModel.from_pretrained("ckpt/")
-
-Training (change Objective to change paradigm):
-    from neuralrnn import Trainer, TrainingArguments, TeacherForcingObjective, load_dataset
-    ds = load_dataset("lorenz63", sequence_length=200, batch_size=16)
-    Trainer(model, ds, TeacherForcingObjective(alpha=0.1),
-            TrainingArguments(max_steps=2000)).train()
-
-Analysis (model-agnostic):
-    from neuralrnn.analysis import find_fixed_points, max_lyapunov_exponent
-    fps = find_fixed_points(model)            # analytic first, falls back to numeric
-
-See docs/ARCHITECTURE.md and docs/PORTING_GUIDE.md for details.
 """
+
 from __future__ import annotations
 
-__version__ = "0.3.2.dev0"
+__version__ = "0.3.5"
 
 # Core base classes / output container
 from .configuration_utils import (

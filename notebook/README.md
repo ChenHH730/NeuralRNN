@@ -2,6 +2,8 @@
 
 These notebook implement previous works with the shared architecture of NeuralRNN (using `AutoModel` / `Trainer` / `analysis`).
 
+**Checkpoints & figures**: every notebook is load-first — training runs save to `models/<nn>/` (unnumbered notebooks use their name, e.g. `models/quickstart/`) and are skipped automatically when a checkpoint already exists (set the notebook's `overwrite` flag or delete the checkpoint to retrain). All generated figures are saved to `figs/<nn>/` at dpi=150 in addition to being displayed inline.
+
 | Notebook | Paradigm | Reference | Key API |
 |---|---|---|---|
 | [01_ctrnn](01_ctrnn_fixedpoints_paradigmA.ipynb) | Task | Yang (2020) | `SupervisedObjective` · `find_fixed_points` |

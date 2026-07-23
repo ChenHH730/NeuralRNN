@@ -17,7 +17,14 @@ OBJECTIVE_REGISTRY: dict[str, type["Objective"]] = {}
 def register_objective(name: str):
     """Class decorator that registers an Objective subclass under ``name``."""
     def decorator(cls: type["Objective"]) -> type["Objective"]:
-        if name in OBJECTIVE_REGISTRY:
+        existing = OBJECTIVE_REGISTRY.get(name)
+        if existing is not None:
+            # Idempotent re-registration: tools that re-execute modules
+            # (importlib.reload, lazydocs' load_module) recreate the same
+            # class object; registering it again is a no-op, not a conflict.
+            if (existing.__name__ == cls.__name__
+                    and existing.__module__ == cls.__module__):
+                return cls
             raise ValueError(
                 f"Objective name '{name}' is already registered to "
                 f"{OBJECTIVE_REGISTRY[name].__name__}"
@@ -27,8 +34,8 @@ def register_objective(name: str):
     return decorator
 
 
-def build_objective(name_or_instance: str | "Objective" | dict | None = None,
-                    **kwargs) -> "Objective" | None:
+def build_objective(name_or_instance: str | Objective | dict | None = None,
+                    **kwargs) -> Objective | None:
     """Build an Objective from a registry name or pass an existing instance through.
 
     Args:
