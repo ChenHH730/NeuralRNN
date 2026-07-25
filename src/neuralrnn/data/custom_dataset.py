@@ -2,27 +2,28 @@
 
 Supports three use cases:
   1. Supervised (Paradigm A): input-output pairs for task optimization
-  2. Time-series reconstruction (Paradigm B): observed trajectories for DSR,
-     with optional internal states for teacher forcing
+  2. Reconstruction (Paradigm B): observed trajectories for DSR / activity
+     reconstruction, with optional behavioral targets and loss mask
   3. Free-running generation: input-only data for model rollout evaluation
 
 Input formats:
   - NumPy arrays: (T, D) or (T,) or (B, T, D)
   - Torch tensors: same shapes
-  - .npz files with keys "inputs", "targets", "internal_states", "external_inputs"
+  - .npz files with keys "inputs", "targets", "activity", "external_inputs", "mask"
   - MATLAB .mat files via scipy.io.loadmat
 
 Batch format (batch-first):
   Paradigm A (supervised):
     {"inputs": (B,T,input_dim), "targets": (B,T,output_dim), "mask": (B,T)|None}
-  Paradigm B (timeseries):
-    {"inputs": (B,T,N), "targets": (B,T,N), "external_inputs": (B,T,K)|None}
+  Paradigm B (reconstruction):
+    {"activity": (B,T,N), "inputs": (B,T,K)|None, "targets": (B,T,O)|None, "mask": (B,T)|None}
+    where "inputs" are external/task inputs and "activity" is the observed trajectory.
 
 Usage:
     from neuralrnn.data.custom_dataset import CustomDataset
 
-    # From arrays
-    ds = CustomDataset.from_arrays(trajectory, mode="timeseries", sequence_length=200)
+    # From arrays (reconstruction mode)
+    ds = CustomDataset.from_arrays(trajectory, mode="reconstruction", sequence_length=200)
 
     # From .npz
     ds = CustomDataset.from_npz("my_data.npz", sequence_length=150)
@@ -32,7 +33,7 @@ Usage:
 """
 from __future__ import annotations
 
-from pathlib import Path
+import warnings
 from random import randint
 
 import numpy as np
@@ -63,17 +64,16 @@ def _ensure_2d(x: torch.Tensor, keep_3d: bool = False) -> torch.Tensor:
 
 
 class CustomDataset(BaseDataset):
-    """User-generated dataset for custom inputs, outputs, and optional internal states.
+    """User-generated dataset for custom inputs, outputs, and optional observations.
 
     Two modes:
       - "supervised": inputs + targets for task optimization (Paradigm A)
-      - "timeseries": observed time series for DSR (Paradigm B),
-        with optional internal_states for teacher forcing
+      - "reconstruction": observed activity for DSR / activity reconstruction
+        (Paradigm B), with optional external inputs, behavioral targets, and mask.
 
     The mode is auto-detected from the provided data if set to "auto":
       - If targets are provided and inputs.shape != targets.shape -> supervised
-      - If targets are provided and inputs.shape == targets.shape -> timeseries
-      - If only inputs are provided -> timeseries (targets = inputs shifted right)
+      - Otherwise -> reconstruction
     """
 
     kind = "custom"
@@ -84,6 +84,7 @@ class CustomDataset(BaseDataset):
         targets: np.ndarray | torch.Tensor | None = None,
         internal_states: np.ndarray | torch.Tensor | None = None,
         external_inputs: np.ndarray | torch.Tensor | None = None,
+        mask: np.ndarray | torch.Tensor | None = None,
         sequence_length: int = 200,
         batch_size: int = 16,
         mode: str = "auto",
@@ -92,19 +93,30 @@ class CustomDataset(BaseDataset):
         test_fraction: float = 0.0,
         seed: int = 0,
     ) -> None:
+        # Deprecated alias handling
+        if mode == "timeseries":
+            warnings.warn(
+                'CustomDataset mode="timeseries" is deprecated; use mode="reconstruction" instead.',
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            mode = "reconstruction"
+
         # Convert to tensors
         X = _to_tensor(inputs)
         Y = _to_tensor(targets)
         IS = _to_tensor(internal_states)
         S = _to_tensor(external_inputs)
+        M = _to_tensor(mask)
 
         # Auto-detect mode before reshaping (3D input with different-dim target -> supervised)
         if mode == "auto":
             if Y is not None and X.ndim >= 2 and X.shape[-1] != Y.shape[-1]:
                 mode = "supervised"
             else:
-                mode = "timeseries"
-        assert mode in ("supervised", "timeseries"), f"Unknown mode: {mode}"
+                mode = "reconstruction"
+        if mode not in ("supervised", "reconstruction"):
+            raise ValueError(f"Unknown mode: {mode!r}. Expected 'supervised' or 'reconstruction'.")
         self.mode = mode
 
         # Reshape: for supervised mode, preserve 3D (B,T,D) trial structure
@@ -116,6 +128,8 @@ class CustomDataset(BaseDataset):
             IS = _ensure_2d(IS)
         if S is not None:
             S = _ensure_2d(S)
+        if M is not None:
+            M = _ensure_2d(M)
 
         # Train/test split
         T_total = X.shape[0]
@@ -132,6 +146,7 @@ class CustomDataset(BaseDataset):
             self._test_targets = Y[test_idx] if Y is not None else None
             self._test_internal_states = IS[test_idx] if IS is not None else None
             self._test_external_inputs = S[test_idx] if S is not None else None
+            self._test_mask = M[test_idx] if M is not None else None
 
             X = X[train_idx]
             if Y is not None:
@@ -140,18 +155,29 @@ class CustomDataset(BaseDataset):
                 IS = IS[train_idx]
             if S is not None:
                 S = S[train_idx]
+            if M is not None:
+                M = M[train_idx]
         else:
             self._test_inputs = None
             self._test_targets = None
             self._test_internal_states = None
             self._test_external_inputs = None
+            self._test_mask = None
 
         # Normalize
-        self.normalizer = StandardScaler().fit(X) if normalize else None
-        if self.normalizer:
-            X = self.normalizer.transform(X)
-            if self._test_inputs is not None:
-                self._test_inputs = self.normalizer.transform(self._test_inputs)
+        if self.mode == "supervised":
+            self.normalizer = StandardScaler().fit(X) if normalize else None
+            if self.normalizer:
+                X = self.normalizer.transform(X)
+                if self._test_inputs is not None:
+                    self._test_inputs = self.normalizer.transform(self._test_inputs)
+        else:
+            # reconstruction mode: normalize the observation trajectory (activity)
+            self.normalizer = StandardScaler().fit(X) if normalize else None
+            if self.normalizer:
+                X = self.normalizer.transform(X)
+                if self._test_inputs is not None:
+                    self._test_inputs = self.normalizer.transform(self._test_inputs)
 
         # Optional normalization of external inputs (independent from observations)
         self.external_normalizer = None
@@ -164,10 +190,11 @@ class CustomDataset(BaseDataset):
                 )
 
         # Store training data
-        self.X = X  # (T, N)
-        self.Y = Y  # (T, output_dim) or None
-        self.IS = IS  # (T, latent_dim) or None — internal states
-        self.S = S  # (T, K) or None — external inputs
+        self.X = X  # supervised: (T, input_dim) or (B, T, input_dim); reconstruction: (T, N) activity
+        self.Y = Y  # supervised: targets; reconstruction: optional behavior targets
+        self.IS = IS  # deprecated internal states (stored but not used in sample_batch)
+        self.S = S  # external inputs (reconstruction mode) or None
+        self.M = M  # optional mask
 
         if self.X.ndim == 3:
             # 3D supervised: (B, T, D)
@@ -179,14 +206,12 @@ class CustomDataset(BaseDataset):
         self.sequence_length = sequence_length
         self.batch_size = batch_size
 
-        # For Paradigm B: if targets not provided, use shifted inputs
-        if self.mode == "timeseries" and self.Y is None:
-            self.Y = self.X.clone()  # Targets = inputs (shifted by 1 in sample_batch)
-
     def __len__(self) -> int:
         # For 3D supervised data: number of trials
         if self.mode == "supervised" and self.X.ndim == 3:
             return self.X.shape[0]
+        if self.mode == "reconstruction":
+            return max(self.T - self.sequence_length, 0)
         return max(self.T - self.sequence_length - 1, 0)
 
     def _slice_supervised(self, t: int) -> tuple:
@@ -205,13 +230,13 @@ class CustomDataset(BaseDataset):
             mask = torch.ones(self.sequence_length, dtype=torch.float32)
         return x, y, mask
 
-    def _slice_timeseries(self, t: int) -> tuple:
-        """Slice for timeseries mode: (input_seq, target_seq, ext_input_seq).
-        targets = inputs shifted right by 1."""
-        x = self.X[t:t + self.sequence_length]
-        y = self.X[t + 1:t + self.sequence_length + 1]
-        s = self.S[t:t + self.sequence_length] if self.S is not None else None
-        return x, y, s
+    def _slice_reconstruction(self, t: int) -> tuple:
+        """Slice for reconstruction mode: (activity, inputs, targets, mask)."""
+        act = self.X[t:t + self.sequence_length]
+        inp = self.S[t:t + self.sequence_length] if self.S is not None else None
+        tgt = self.Y[t:t + self.sequence_length] if self.Y is not None else None
+        msk = self.M[t:t + self.sequence_length] if self.M is not None else None
+        return act, inp, tgt, msk
 
     def sample_batch(self) -> dict[str, torch.Tensor]:
         """Sample a random batch of subsequences.
@@ -219,25 +244,32 @@ class CustomDataset(BaseDataset):
         Returns:
             For supervised mode:
                 {"inputs": (B,T,input_dim), "targets": (B,T,output_dim), "mask": (B,T)}
-            For timeseries mode:
-                {"inputs": (B,T,N), "targets": (B,T,N), "external_inputs": (B,T,K)|None}
+            For reconstruction mode:
+                {"activity": (B,T,N), "inputs": (B,T,K)|None, "targets": (B,T,O)|None,
+                 "mask": (B,T)|None}
+                Only non-None optional keys are included.
         """
         xs, ys, extras = [], [], []
+        # reconstruction mode may also produce targets and mask
+        ss, ts, ms = [], [], []
 
         for _ in range(self.batch_size):
-            t = randint(0, len(self) - 1)
+            t = randint(0, max(len(self) - 1, 0))
 
             if self.mode == "supervised":
                 x, y, mask = self._slice_supervised(t)
                 xs.append(x)
                 ys.append(y)
                 extras.append(mask)
-            else:  # timeseries
-                x, y, s = self._slice_timeseries(t)
-                xs.append(x)
-                ys.append(y)
-                if s is not None:
-                    extras.append(s)
+            else:  # reconstruction
+                act, inp, tgt, msk = self._slice_reconstruction(t)
+                xs.append(act)
+                if inp is not None:
+                    ss.append(inp)
+                if tgt is not None:
+                    ts.append(tgt)
+                if msk is not None:
+                    ms.append(msk)
 
         if self.mode == "supervised":
             return {
@@ -246,11 +278,14 @@ class CustomDataset(BaseDataset):
                 "mask": torch.stack(extras),    # (B,T)
             }
         else:
-            return {
-                "inputs": torch.stack(xs),      # (B,T,N)
-                "targets": torch.stack(ys),     # (B,T,N)
-                "external_inputs": torch.stack(extras) if extras else None,
-            }
+            batch = {"activity": torch.stack(xs)}  # (B,T,N)
+            if ss:
+                batch["inputs"] = torch.stack(ss)  # (B,T,K)
+            if ts:
+                batch["targets"] = torch.stack(ts)  # (B,T,O)
+            if ms:
+                batch["mask"] = torch.stack(ms)     # (B,T)
+            return batch
 
     @property
     def test_set(self) -> CustomDataset | None:
@@ -263,11 +298,13 @@ class CustomDataset(BaseDataset):
         ds.normalizer = self.normalizer
         ds.external_normalizer = self.external_normalizer
         ds.X = self._test_inputs
-        ds.Y = self._test_targets if self._test_targets is not None else (
-            self._test_inputs.clone() if self.mode == "timeseries" else None
-        )
+        if self.mode == "supervised":
+            ds.Y = self._test_targets
+        else:
+            ds.Y = self._test_targets  # behavior targets (may be None)
         ds.IS = self._test_internal_states
         ds.S = self._test_external_inputs
+        ds.M = self._test_mask
         if ds.X.ndim == 3:
             ds.T, ds.N = ds.X.shape[1], ds.X.shape[2]
         else:
@@ -281,6 +318,7 @@ class CustomDataset(BaseDataset):
         ds._test_targets = None
         ds._test_internal_states = None
         ds._test_external_inputs = None
+        ds._test_mask = None
         return ds
 
     @property
@@ -289,6 +327,11 @@ class CustomDataset(BaseDataset):
         if self._test_inputs is not None:
             return self._test_inputs
         return None
+
+    @property
+    def activity(self) -> torch.Tensor | None:
+        """Observation trajectory (reconstruction mode). Alias for self.X."""
+        return self.X
 
     # ====================== Class method constructors ======================
 
@@ -299,17 +342,21 @@ class CustomDataset(BaseDataset):
         targets: np.ndarray | torch.Tensor | None = None,
         internal_states: np.ndarray | torch.Tensor | None = None,
         external_inputs: np.ndarray | torch.Tensor | None = None,
+        mask: np.ndarray | torch.Tensor | None = None,
         normalize_externals: bool = False,
         **kwargs,
     ) -> CustomDataset:
         """Convenience constructor from numpy arrays or torch tensors.
 
         Args:
-            inputs: (T, D) or (T,) or (B, T, D) array of inputs/observations.
+            inputs: (T, D) or (T,) or (B, T, D) array.
+                For supervised: task inputs.
+                For reconstruction: observed activity / trajectory.
             targets: (T, D') or (T,) array. For supervised: class labels or regression targets.
-                     For timeseries: same as inputs (auto-generated if None).
-            internal_states: (T, M) optional internal latent states (e.g. for teacher forcing).
-            external_inputs: (T, K) optional external inputs / covariates.
+                For reconstruction: optional behavioral targets.
+            internal_states: (T, M) optional internal latent states (deprecated; unused).
+            external_inputs: (T, K) optional external inputs / covariates (reconstruction mode).
+            mask: (T,) or (T, 1) optional per-timestep mask (reconstruction mode).
             normalize_externals: If True and normalize=True, fit a separate StandardScaler
                 on ``external_inputs`` and transform them independently of ``inputs``.
             **kwargs: passed to CustomDataset.__init__ (sequence_length, batch_size, mode,
@@ -322,20 +369,23 @@ class CustomDataset(BaseDataset):
             # Paradigm A: supervised
             ds = CustomDataset.from_arrays(X, targets=Y, mode="supervised")
 
-            # Paradigm B: DSR
-            ds = CustomDataset.from_arrays(trajectory, mode="timeseries")
+            # Paradigm B: DSR (teacher forcing)
+            ds = CustomDataset.from_arrays(trajectory, mode="reconstruction", sequence_length=200)
 
-            # Paradigm B with internal states
-            ds = CustomDataset.from_arrays(traj, internal_states=states)
+            # Paradigm B: activity reconstruction with behavior targets
+            ds = CustomDataset.from_arrays(
+                traj, targets=behavior, external_inputs=ext_inp, mask=msk,
+                mode="reconstruction"
+            )
         """
         return cls(inputs, targets=targets, internal_states=internal_states,
-                   external_inputs=external_inputs, normalize_externals=normalize_externals,
-                   **kwargs)
+                   external_inputs=external_inputs, mask=mask,
+                   normalize_externals=normalize_externals, **kwargs)
 
     @classmethod
     def from_dict(cls, data: dict, normalize_externals: bool = False, **kwargs) -> CustomDataset:
         """Construct from a dict with keys "inputs", "targets" (optional),
-        "internal_states" (optional), "external_inputs" (optional).
+        "external_inputs" (optional), "mask" (optional).
 
         Useful for loading from preprocessed data structures or .npz files.
 
@@ -353,6 +403,7 @@ class CustomDataset(BaseDataset):
             targets=data.get("targets"),
             internal_states=data.get("internal_states"),
             external_inputs=data.get("external_inputs"),
+            mask=data.get("mask"),
             normalize_externals=normalize_externals,
             **kwargs,
         )
@@ -362,7 +413,7 @@ class CustomDataset(BaseDataset):
         """Load from a .npz file.
 
         Expected keys: "inputs" (required), "targets" (optional),
-        "internal_states" (optional), "external_inputs" (optional).
+        "external_inputs" (optional), "mask" (optional).
 
         Args:
             path: path to .npz file.
@@ -390,7 +441,7 @@ class CustomDataset(BaseDataset):
         Args:
             path: path to .mat file.
             variable_map: dict mapping expected keys ("inputs", "targets",
-                "internal_states", "external_inputs") to .mat variable names.
+                "external_inputs", "mask") to .mat variable names.
                 If None, uses the default names directly.
             normalize_externals: If True and normalize=True, normalize ``external_inputs``
                 with a separate StandardScaler.
@@ -412,6 +463,7 @@ class CustomDataset(BaseDataset):
             "targets": "targets",
             "internal_states": "internal_states",
             "external_inputs": "external_inputs",
+            "mask": "mask",
         }
         vmap = {**default_map, **(variable_map or {})}
 
@@ -430,6 +482,7 @@ class CustomDataset(BaseDataset):
             targets=_get("targets"),
             internal_states=_get("internal_states"),
             external_inputs=_get("external_inputs"),
+            mask=_get("mask"),
             normalize_externals=normalize_externals,
             **kwargs,
         )

@@ -70,19 +70,19 @@ class TestFromTimeseries:
 
 
 class TestCustomDataset:
-    def test_timeseries_mode_shapes(self):
+    def test_reconstruction_mode_shapes(self):
         T, N = 300, 4
         inputs = np.random.randn(T, N).astype(np.float32)
         targets = np.random.randn(T, N).astype(np.float32)
         ds = CustomDataset.from_arrays(
-            inputs, targets=targets, mode="timeseries", sequence_length=40, batch_size=6
+            inputs, targets=targets, mode="reconstruction", sequence_length=40, batch_size=6
         )
         batch = ds.sample_batch()
 
-        assert ds.mode == "timeseries"
-        assert batch["inputs"].shape == (6, 40, 4)
+        assert ds.mode == "reconstruction"
+        assert batch["activity"].shape == (6, 40, 4)
         assert batch["targets"].shape == (6, 40, 4)
-        assert batch["external_inputs"] is None
+        assert "inputs" not in batch  # no external inputs provided
 
     def test_supervised_mode_shapes(self):
         B, T, D, O = 5, 20, 3, 2
@@ -103,7 +103,7 @@ class TestCustomDataset:
         inputs = np.random.randn(T, N).astype(np.float32)
         states = np.random.randn(T, M).astype(np.float32)
         ds = CustomDataset.from_arrays(
-            inputs, internal_states=states, mode="timeseries", sequence_length=30, batch_size=4
+            inputs, internal_states=states, mode="reconstruction", sequence_length=30, batch_size=4
         )
         assert ds.IS is not None
         assert ds.IS.shape == (T, M)

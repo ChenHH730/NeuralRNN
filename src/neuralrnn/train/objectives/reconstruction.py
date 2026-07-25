@@ -110,7 +110,7 @@ class ReconstructionObjective(Objective):
             behavior term is active and "nmse_y"/"mse_y" when the activity
             term is active.
         """
-        out = model(batch["inputs"])
+        out = model(batch.get("inputs"))
         mask = batch.get("mask")
 
         loss = 0.0

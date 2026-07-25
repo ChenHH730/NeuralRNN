@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "neuralrnn"
-version = "0.3.5.dev0"
+version = "0.3.5"
 description = "A unified framework for implementing RNN methods in cognitive neuroscience"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-authors = [{ name = "NeuralRNN contributors" }]
+authors = [{ name = "Honghua Chen", email = "honghuachen69@gmail.com" }]
 keywords = ["RNN", "computational-neuroscience", "dynamical-systems",
             "dynamics-reconstruction", "interpretability", "PLRNN"]
 
@@ -26,8 +26,18 @@ dependencies = [
     "tqdm",
 ]
 
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+
 [project.urls]
-Documentation = "README.md"
+Homepage = "https://github.com/HHChen730/NeuralRNN"
+Documentation = "https://neuralrnn.readthedocs.io/"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/neuralrnn"]
@@ -38,3 +48,6 @@ target-version = "py39"
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
+
+[tool.setuptools.exclude-package-data]
+"neuralrnn" = ["docs/*", "notebook/*", "*.ipynb"]
