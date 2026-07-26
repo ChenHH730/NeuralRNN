@@ -1,14 +1,18 @@
-# NeuralRNN
+<h1>
+  <img src="assets/logo.svg" width="40" height="40" style="vertical-align: middle;" />
+  NeuralRNN
+</h1>
 
 ---
 
-**NeuralRNN is A unified framework for implementing RNN methods in cognitive neuroscience** — bringing two major paradigms under a single [Transformers](https://github.com/huggingface/transformers)-style interface:
+**NeuralRNN [[Docs](https://neuralrnn.readthedocs.io/en/latest/)] is A unified framework for implementing RNN methods in cognitive neuroscience** — bringing two major paradigms under a single interface:
 
 - **Paradigm A: Task Optimization**[^1]: Train RNNs on cognitive tasks, then reverse-engineer how they perform computation using analyses including fixed points, vector fields, dimensionality reduction, etc. The goal is to use RNNs as a proxy for cognitive computation.
 - **Paradigm B: Dynamical System Reconstruction (DSR)**[^2][^3]: Fit generative RNNs directly from neural/behavioral time series that can reproduce attractors, power spectra, and Lyapunov spectra of the target system.
 
 Both paradigms share a unified set of `model config`, `Trainer`, and `analysis` tools. **The only difference between the two paradigms is the `Objective`**: Paradigm A aims to optimize output for cognitive task performance, while Paradigm B aims to construct a dynamical system isomorphic to the target neural activity. Moreover, DSR can also be applied to reconstruct the dynamics of TBO-trained models for interpretability analysis[^4].
 
+![fig1](assets/fig1.jpg)
 ---
 
 ## Core Concept
@@ -32,6 +36,12 @@ However, there are others methods using dynamical system methods as well, includ
 
 
 ## Install
+
+```bash
+$ pip install neuralrnn
+```
+
+or
 
 ```bash
 $ git clone https://github.com/ChenHH730/NeuralRNN.git
@@ -72,14 +82,12 @@ fps = find_fixed_points(model)
 src/neuralrnn/
   configuration_utils.py   modeling_utils.py     # core contracts (Config / Model base classes)
   auto/                    # AutoConfig / AutoModel registration & dispatch
-  models/                  # model zoo: ctrnn, ei_rnn, lowrank_rnn (Paradigm A), plrnn (Paradigm B), latent_circuit, tiny_rnn,
+  models/                  # model zoo: ctrnn, ei_rnn, lowrank_rnn, plrnn, latent_circuit, tiny_rnn,
                            #   constrained_rnn, multiarea_rnn, gain_rnn (gain_rnn + stp_rnn)
-  data/                    # unified batching, datasets, open data registry + download cache
   train/                   # generic Trainer + paradigm Objectives + reusable loss terms /
                            #   regularizers / metrics + nested cross-validation
   analysis/                # fixed points / linearization / vector fields / dim reduction /
                            #   Lyapunov / D_stsp, D_H / PLRNN invariant manifolds / sequentiality
-docs/                      # ARCHITECTURE.md · PORTING_GUIDE.md · theory/ · papers/
 notebook/                  # end-to-end tutorials for each paper
 ```
 
@@ -112,17 +120,11 @@ MIT, see [LICENSE](LICENSE). Original code of ported papers belongs to their res
 ## References
 
 [^1]: [Training Excitatory-Inhibitory Recurrent Neural Networks for Cognitive Tasks](https://doi.org/10.1371/journal.pcbi.1004792). 
-Project: https://github.com/gyyang/nn-brain
 
 [^2]: [Reconstructing computational dynamics from neural measurements with RNN](https://www.nature.com/articles/s41583-023-00740-7)
-Project: https://github.com/DurstewitzLab/CNS-2023
 
 [^3]: [Discovering cognitive strategies with tiny-RNN](https://www.nature.com/articles/s41586-025-09142-4) 
-Project: https://github.com/jil095/tinyRNN
 
 [^4]: https://github.com/engellab/latentcircuit
 
 [^5]: https://github.com/Dynamics-of-Neural-Systems-Lab/MARBLE
-
-[^6]: https://github.com/NN4Neurosim/nn4n https://nn4n.org/
-[^7]: 
