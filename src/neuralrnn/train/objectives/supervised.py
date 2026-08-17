@@ -7,6 +7,10 @@ the model for a full rollout, and compute the loss between readout outputs and t
   outputs (B,T,C) are reshaped to (B*T,C).
 - Regression tasks: targets are (B,T,output_dim), use MSE.
 Optional mask (B,T) counts loss only at valid time steps.
+
+Models with ``output_h0=True`` (e.g. tiny_rnn) emit one extra leading output step
+(readout of the initial state); when the output length is one greater than the target
+length, the leading step is dropped automatically (``y[:, :-1]``) to align with targets.
 """
 from __future__ import annotations
 
@@ -36,6 +40,11 @@ class SupervisedObjective(Objective):
         y = out.outputs                         # (B,T,output_dim)
         target = batch["targets"]
         mask = batch.get("mask")
+
+        # output_h0 alignment: outputs include the readout of the initial
+        # hidden state; drop the leading step to match target length.
+        if getattr(model.config, "output_h0", False) and y.shape[1] == target.shape[1] + 1:
+            y = y[:, :-1]
 
         if self.task_type == "classification":
             loss = masked_cross_entropy(y, target, mask)

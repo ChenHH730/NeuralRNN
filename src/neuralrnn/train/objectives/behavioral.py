@@ -2,8 +2,12 @@
 
 Corresponds to 01-fitting-generated-data.ipynb: use a small GRU to fit subjects' trial-by-trial
 choices in bandit-like tasks, predicting the log-odds of the next action with CrossEntropy.
-Differs from the supervised objective in input / target semantics (behavioral sequences) and is
-often combined with nested cross-validation (see train/cv.py and PORTING_GUIDE recipe 7).
+Often combined with nested cross-validation (see train/cv.py and PORTING_GUIDE recipe 7).
+
+This is a thin compatibility subclass of :class:`SupervisedObjective` (classification):
+the base class already provides the masked cross-entropy loss and the ``output_h0``
+alignment; this subclass only adds the tinyRNN-style L1 penalty on recurrent weights
+and the ``nll`` log entry.
 
 Standard batch (ARCHITECTURE §3.1 behavior):
     {"inputs": (B,T,input_dim) encoded history (action/reward...),
@@ -11,42 +15,42 @@ Standard batch (ARCHITECTURE §3.1 behavior):
 """
 from __future__ import annotations
 
-import torch
-
-from .base import Objective
+from .supervised import SupervisedObjective
 from .registry import register_objective
-from ..losses import masked_nll
 from ...modeling_utils import NeuralDynamicsModel
 
 
 @register_objective("behavioral")
-class BehavioralObjective(Objective):
-    """Negative log-likelihood of the next action. Readout outputs action logits.
+class BehavioralObjective(SupervisedObjective):
+    """Negative log-likelihood of the next action, plus optional L1 on recurrent weights.
 
-    Supports tiny_rnn's ``output_h0=True`` config: when the model output length is one greater
-    than target length, automatically take ``logits[:, :-1]`` to align with target
-    (matching the original project's ``scores[:-1]``).
-    If ``l1_weight`` exists in config and the model provides ``get_l1_loss()``, the L1 term is added to loss.
+    Inherits the masked cross-entropy loss and ``output_h0`` alignment (leading
+    output step dropped when the model emits T+1 outputs) from
+    :class:`SupervisedObjective`.
+
+    Args:
+        task_type: passed to SupervisedObjective (default "classification").
+        l1_weight: L1 coefficient on recurrent weights. If None (default), the
+            value is read from ``model.config.l1_weight`` (tiny_rnn convention).
+            An explicit value overrides the config; 0 disables the penalty.
     """
+
+    def __init__(self, task_type: str = "classification",
+                 l1_weight: float | None = None):
+        super().__init__(task_type=task_type)
+        self.l1_weight = l1_weight
 
     def compute_loss(self, model: NeuralDynamicsModel, batch):
         """Batch keys: "inputs" (B,T,K), "targets" (B,T) action indices,
-        optional "mask" (B,T). Returns (loss, {"loss", "nll", ["l1"]})."""
-        out = model(batch["inputs"])
-        logits = out.outputs                 # (B, T or T+1, n_actions)
-        target = batch["targets"].long()     # (B, T)
-        mask = batch.get("mask")
-
-        # Handle output_h0=True: outputs include readout of initial hidden state.
-        output_h0 = getattr(model.config, "output_h0", False)
-        if output_h0 and logits.shape[1] == target.shape[1] + 1:
-            logits = logits[:, :-1]
-
-        loss = masked_nll(logits, target, mask)
-        logs = {"loss": loss.item(), "nll": loss.item()}
+        optional "mask" (B,T). Returns (loss, {"loss", "acc"/..., "nll", ["l1"]})."""
+        loss, logs = super().compute_loss(model, batch)
+        if self.task_type == "classification":
+            logs["nll"] = logs["loss"]  # task NLL before the L1 term
 
         # Optional L1 regularization on recurrent weights (tiny_rnn).
-        l1_weight = getattr(model.config, "l1_weight", 0.0)
+        l1_weight = self.l1_weight
+        if l1_weight is None:
+            l1_weight = getattr(model.config, "l1_weight", 0.0)
         if l1_weight > 0 and hasattr(model, "get_l1_loss"):
             l1 = model.get_l1_loss()
             loss = loss + l1_weight * l1

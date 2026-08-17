@@ -82,8 +82,9 @@ fps = find_fixed_points(model)
 src/neuralrnn/
   configuration_utils.py   modeling_utils.py     # core contracts (Config / Model base classes)
   auto/                    # AutoConfig / AutoModel registration & dispatch
-  models/                  # model zoo: ctrnn, ei_rnn, lowrank_rnn, plrnn, latent_circuit, tiny_rnn,
-                           #   constrained_rnn, multiarea_rnn, gain_rnn (gain_rnn + stp_rnn)
+  models/                  # model zoo: ctrnn, ei_rnn, lowrank_rnn, plrnn, latent_circuit,
+                           #   gated_rnn (GRU/LSTM + tiny_rnn), constrained_rnn, multiarea_rnn,
+                           #   gain_rnn (gain_rnn + stp_rnn)
   train/                   # generic Trainer + paradigm Objectives + reusable loss terms /
                            #   regularizers / metrics + nested cross-validation
   analysis/                # fixed points / linearization / vector fields / dim reduction /

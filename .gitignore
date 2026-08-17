@@ -8,7 +8,7 @@ docs/PORTING_GUIDE.md
 docs/papers/*_cn.md
 notebook/figs/
 notebook/models/
-notebook/test/
+notebook/deprecated/
 notebook/test_analysis_fixes.py
 notebook/test.ipynb
 notebook/*.py
