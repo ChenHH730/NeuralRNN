@@ -2,6 +2,7 @@
 from .base import BaseDataset, StandardScaler, Trials
 from .custom_dataset import CustomDataset
 from .cognitive_task_dataset import CognitiveTaskDataset
+from .contingency_dataset import ContingencyDataset
 from .reconstruction_dataset import ReconstructionDataset
 from .registry import DATASET_REGISTRY, DatasetSpec, load_dataset
 
@@ -9,6 +10,7 @@ __all__ = [
     "BaseDataset", "StandardScaler", "Trials",
     "CustomDataset",
     "CognitiveTaskDataset",
+    "ContingencyDataset",
     "ReconstructionDataset",
     "DATASET_REGISTRY", "DatasetSpec", "load_dataset",
 ]

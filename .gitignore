@@ -18,6 +18,7 @@ notebook/_*
 **/*_executed.ipynb
 temp/
 test/_**
+tests/
 # C extensions
 *.so
 scripts/*

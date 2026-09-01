@@ -36,6 +36,13 @@ class CTRNNConfig(NeuralRNNConfig):
             named_parameters at all, stronger than freezing); True -> h0 is an
             nn.Parameter, which can still be frozen via freeze_h0=True.
         sigma_rec:  Standard deviation of recurrent noise (0 disables)
+        noise_alpha_scaling: Legacy flag; noise std = sqrt(2 * alpha * sigma^2).
+        noise_scaling: Explicit noise scaling mode, overrides noise_alpha_scaling when set:
+            None               -> legacy behavior (noise_alpha_scaling flag);
+            "sqrt_2alpha"      -> std = sqrt(2 * alpha * sigma^2) (same as legacy flag);
+            "sqrt_2_over_alpha"-> std = sqrt(2 * sigma^2 / alpha) (recipe of
+                                  Battista-2026: prefactor sqrt(2*sigma2rec/alpha)
+                                  with sigma2rec the variance).
         nonlinearity_mode: Where the nonlinearity f sits in the Euler step
             (pre = W@state + B@x + b, noise added on pre):
             "pre_activation" (default): z' = (1-α)z + α·f(pre);
@@ -64,11 +71,15 @@ class CTRNNConfig(NeuralRNNConfig):
         trainable_h0: bool = False,
         sigma_rec: float = 0.0,
         noise_alpha_scaling: bool = False,
+        noise_scaling: str | None = None,
         nonlinearity_mode: str = "pre_activation",
         **kwargs,
     ) -> None:
         alpha, dt = resolve_euler_alpha(dt, tau, alpha, default_dt=100.0, model_type=self.model_type)
         validate_nonlinearity_mode(nonlinearity_mode, model_type=self.model_type)
+        if noise_scaling not in (None, "sqrt_2alpha", "sqrt_2_over_alpha"):
+            raise ValueError(
+                f"noise_scaling must be None, 'sqrt_2alpha' or 'sqrt_2_over_alpha', got {noise_scaling!r}")
         super().__init__(input_dim=input_dim, latent_dim=latent_dim,
                          output_dim=output_dim, dt=dt, activation=activation, **kwargs)
         self.alpha = alpha
@@ -85,6 +96,7 @@ class CTRNNConfig(NeuralRNNConfig):
         self.trainable_h0 = trainable_h0
         self.sigma_rec = sigma_rec
         self.noise_alpha_scaling = noise_alpha_scaling
+        self.noise_scaling = noise_scaling
         self.nonlinearity_mode = nonlinearity_mode
 
 
@@ -96,6 +108,10 @@ class EIRNNConfig(CTRNNConfig):
                         This matches the original E-I RNN paper (Song et al., 2016) where
                         long-range projections are exclusively excitatory.
         init_method:    Weight initialization method ('kaiming' or 'gamma').
+                        'gamma' samples |W_rec| ~ Gamma(4, 4) (recipe of Battista-2026).
+        spectral_radius: If set, rescale the effective recurrent matrix |W| @ diag(sign)
+                        to this spectral radius after init (e.g. 1.5 in Battista-2026).
+        no_self_connections: If True, zero the W_rec diagonal after init.
 
     Reference:
         Song, H.F., Yang, G.R. and Wang, X.J., 2016.
@@ -106,8 +122,13 @@ class EIRNNConfig(CTRNNConfig):
     model_type = "ei_rnn"
 
     def __init__(self, readout_e_only: bool = True, init_method: str = "kaiming",
+                 spectral_radius: float | None = None, no_self_connections: bool = False,
                  **kwargs):
         kwargs.setdefault("dale", True)
+        if init_method not in ("kaiming", "gamma"):
+            raise ValueError(f"init_method must be 'kaiming' or 'gamma', got {init_method!r}")
         super().__init__(**kwargs)
         self.readout_e_only = readout_e_only
         self.init_method = init_method
+        self.spectral_radius = spectral_radius
+        self.no_self_connections = no_self_connections

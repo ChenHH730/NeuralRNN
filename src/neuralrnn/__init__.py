@@ -35,7 +35,7 @@ from .auto import (
 # Data
 from .data import (
     BaseDataset, StandardScaler, CustomDataset,
-    CognitiveTaskDataset, ReconstructionDataset,
+    CognitiveTaskDataset, ReconstructionDataset, ContingencyDataset,
     DATASET_REGISTRY, DatasetSpec, load_dataset,
 )
 
@@ -44,7 +44,7 @@ from .train import (
     Trainer, TrainingArguments,
     Objective, SupervisedObjective, RegularizedSupervisedObjective,
     TeacherForcingObjective, BehavioralObjective, VariationalObjective,
-    ReconstructionObjective, ConstrainedSupervisedObjective,
+    ReconstructionObjective, ConstrainedSupervisedObjective, TDObjective,
     build_objective, register_objective, OBJECTIVE_REGISTRY, AutoObjective,
     masked_mse, masked_cross_entropy, masked_nll, loss_mse,
     activity_l2, weight_l2, weight_l1,
@@ -55,6 +55,17 @@ from .train import (
 # Visualization
 from . import visualization
 
+# Reinforcement learning (agent layer + algorithm/trainer/env layers)
+from .models.actor_critic import ActorCriticConfig, ActorCriticModel
+from .rl import (
+    RLTrainer, RLTrainingArguments, PPOLoss, ReinforceLoss, A2CPredLoss,
+    RecurrentRolloutBuffer, NStepReturns, GAE,
+    SyncVectorEnv, make_env, register_env, collect_episodes,
+    build_rl_loss, register_rl_loss, RL_LOSS_REGISTRY,
+    VecNormalize, OnlineObsNorm,
+    WorldModelPlanner, RolloutResult, bind_planners,
+)
+
 __all__ = [
     "__version__",
     "NeuralRNNConfig", "NeuralDynamicsModel", "DynamicsModelOutput",
@@ -64,16 +75,23 @@ __all__ = [
     "AutoConfig", "AutoModel", "register_config", "register_model",
     "CONFIG_REGISTRY", "MODEL_REGISTRY",
     "BaseDataset", "StandardScaler", "CustomDataset",
-    "CognitiveTaskDataset", "ReconstructionDataset",
+    "CognitiveTaskDataset", "ReconstructionDataset", "ContingencyDataset",
     "DATASET_REGISTRY", "DatasetSpec", "load_dataset",
     "Trainer", "TrainingArguments",
     "Objective", "SupervisedObjective", "RegularizedSupervisedObjective",
     "TeacherForcingObjective", "BehavioralObjective", "VariationalObjective",
-    "ReconstructionObjective", "ConstrainedSupervisedObjective",
+    "ReconstructionObjective", "ConstrainedSupervisedObjective", "TDObjective",
     "build_objective", "register_objective", "OBJECTIVE_REGISTRY", "AutoObjective",
     "masked_mse", "masked_cross_entropy", "masked_nll", "loss_mse",
     "activity_l2", "weight_l2", "weight_l1",
     "orthogonality_penalty", "model_orthogonality_penalty",
     "accuracy_classification", "accuracy_general",
+    "ActorCriticConfig", "ActorCriticModel",
+    "RLTrainer", "RLTrainingArguments", "PPOLoss", "ReinforceLoss", "A2CPredLoss",
+    "RecurrentRolloutBuffer", "NStepReturns", "GAE",
+    "SyncVectorEnv", "make_env", "register_env", "collect_episodes",
+    "VecNormalize", "OnlineObsNorm",
+    "build_rl_loss", "register_rl_loss", "RL_LOSS_REGISTRY",
+    "WorldModelPlanner", "RolloutResult", "bind_planners",
 ]
 

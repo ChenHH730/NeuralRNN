@@ -37,6 +37,7 @@ _LAZY_MODULES: dict[str, str] = {
     "gain_rnn": "neuralrnn.models.gain_rnn.modeling_gain_rnn",
     "stp_rnn": "neuralrnn.models.gain_rnn.modeling_gain_rnn",
     "multiarea_rnn": "neuralrnn.models.multiarea_rnn.modeling_multiarea_rnn",
+    "actor_critic": "neuralrnn.models.actor_critic.modeling_actor_critic",
     # Add after porting:
     # "lfads": "neuralrnn.models.lfads.modeling_lfads",
 }

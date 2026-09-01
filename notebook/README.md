@@ -1,8 +1,7 @@
 # Tutorial Notebook
 
-These notebook implement previous works with the shared architecture of NeuralRNN (using `AutoModel` / `Trainer` / `analysis`).
+These notebook introduce the key features of NeuralRNN, including model architectures, objectives, and analysis, with the example of implementing previous works.
 
-**Checkpoints & figures**: every notebook is load-first — training runs save to `models/<nn>/` (unnumbered notebooks use their name, e.g. `models/quickstart/`) and are skipped automatically when a checkpoint already exists (set the notebook's `overwrite` flag or delete the checkpoint to retrain). All generated figures are saved to `figs/<nn>/` at dpi=150 in addition to being displayed inline.
 
 | Notebook | Paradigm | Reference | Key API |
 |---|---|---|---|
@@ -23,8 +22,20 @@ These notebook implement previous works with the shared architecture of NeuralRN
 | [15_neural_sequence](15_neural_sequence_paradigmA.ipynb) | Task | Orhan & Ma (2019); Zhou et al. (2023) Figure 3 | inline Orhan/Zhou T+WM tasks · `ctrnn` · `ei_rnn` · sequentiality index · effective dimensionality · ramp-to-sequence transition |
 | [16_connectome_rnn](16_connectome_rnn_paradigmB.ipynb) | Reconstruction | Beiran & Litwin-Kumar (2025) | `gain_rnn` · cycling task · teacher-student (shared J, gain/bias only) · Fig.1 readout-trained student · Fig.2 recorded-activity students (M=20/40/80/120, `ReconstructionObjective`) |
 | [17_multi_area_rnn](17_multi_area_rnn_paradigmA.ipynb) | Task | Kleinman et al. (2025) | `multiarea_rnn` (+ manual `constrained_rnn` masks) · checkerboard task · information bottleneck across 3 areas · dPCA · W21/W32 SVD alignment |
+| [18_rl_rnn](18_rl_rnn_paradigmA.ipynb) | RL | Battista et al. (2026) | `actor_critic` (E-I core) · ECHOICE env · PPO (`RLTrainer`) · 3-phase learning curve · inferred relative values · unit tuning · participation ratio |
+| [19_value_rnn](19_value_rnn_paradigmA.ipynb) | RL | Qian & Burrell (2024) Fig. 6 | `gated_rnn` (GRU value-RNN) · `contingency` dataset · TD(0) (`TDObjective` + `Trainer`) · RPE event bars · value/RPE traces · CCA alignment · belief R² |
 | [cognitive_tasks](cognitive_tasks.ipynb) | Tutorial | — | Visualize all built-in cognitive tasks (inputs / targets / masks) |
 | [objectives](objectives.ipynb) | Tutorial | — | `Objective` layer, built-in objectives, loss terms, custom objectives, `build_objective` |
 | [quickstart](quickstart.ipynb) | Tutorial | — | quick start of two paradigms |
+
+
+These notebook implement more previous works with the shared architecture of NeuralRNN (using `AutoModel` / `Trainer` / `analysis`).
+
+| Notebook | Paradigm | Reference | Key API |
+|---|---|---|---|
+| [s1_plumetracknets](s1_plumetracknets.ipynb) | RL | Singh et al. (2023) | `actor_critic` continuous-action (VRNN core) · plume env (replayed turbulence sim + centerline) · two-stage PPO curriculum (5 seeds × 1M+4M steps) · fixed-grid eval · TRACK/RECOVER/SEARCH regimes · centerline-vs-wind course direction · odor-memory window scan + RF readout · common PCA / limit cycle · eigenspectra + timescales · TTL/TTT asymmetry |
+| [s2_metalearning](s2_metalearning.ipynb) | RL | Jensen, Hennequin & Mattar (2024) | `actor_critic` (GRU core + world-model aux head) · maze env (toroidal 4×4 + think action) · `WorldModelPlanner` imagined rollouts fed back as input · A2C + prediction loss (`A2CPredLoss`) · ~200M-step training · exploitation vs BFS optimum · difficulty-dependent thinking · planning ablation / forced & causal rollouts · replay content (walls, goal over-representation, build-up, following) · rollout-as-policy-gradient alignment · world-model learning curve |
+
+**Checkpoints & figures**: every notebook is load-first — training runs save to `models/<nn>/` (unnumbered notebooks use their name, e.g. `models/quickstart/`) and are skipped automatically when a checkpoint already exists (set the notebook's `overwrite` flag or delete the checkpoint to retrain). All generated figures are saved to `figs/<nn>/` at dpi=150 in addition to being displayed inline.
 
 In an offline environment, for datasets that need to be downloaded (such as Lorenz63), please manually place the files into the cache directory as instructed by `src/neuralrnn/data/download.py` (default: `~/.cache/neuralrnn/datasets`, or set `NEURALRNN_CACHE`).

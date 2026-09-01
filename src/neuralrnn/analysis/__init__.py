@@ -83,6 +83,12 @@ from .demixed import (
     axis_svd_alignment,
     potent_null_projection,
 )
+from .cca import (
+    CCA,
+    fit_cca,
+    pca_loadings,
+    multiset_cca,
+)
 
 __all__ = [
     # -- linalg utils --
@@ -168,4 +174,9 @@ __all__ = [
     "axis_overlap_matrix",
     "axis_svd_alignment",
     "potent_null_projection",
+    # -- CCA alignment across views --
+    "CCA",
+    "fit_cca",
+    "pca_loadings",
+    "multiset_cca",
 ]

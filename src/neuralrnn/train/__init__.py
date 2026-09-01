@@ -14,6 +14,7 @@ from .objectives import (
     VariationalObjective,
     ReconstructionObjective,
     ConstrainedSupervisedObjective,
+    TDObjective,
 )
 from .losses import (
     masked_mse,
@@ -50,6 +51,7 @@ __all__ = [
     "VariationalObjective",
     "ReconstructionObjective",
     "ConstrainedSupervisedObjective",
+    "TDObjective",
     "masked_mse",
     "masked_cross_entropy",
     "masked_nll",

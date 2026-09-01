@@ -98,7 +98,11 @@ class CTRNNModel(NeuralDynamicsModel):
         rec_in = self.act(z_prev) if mode == "rate" else z_prev
         pre = self.input2h(x_t) + torch.nn.functional.linear(rec_in, W, self.h2h.bias)
         if self.config.sigma_rec > 0 and self.training:
-            if self.config.noise_alpha_scaling:
+            scaling = getattr(self.config, "noise_scaling", None)
+            if scaling == "sqrt_2_over_alpha":
+                # Battista-2026 recipe: std = sqrt(2 * sigma^2 / alpha)
+                noise_std = (2 * self.config.sigma_rec ** 2 / self.alpha) ** 0.5
+            elif scaling == "sqrt_2alpha" or (scaling is None and self.config.noise_alpha_scaling):
                 # Reference formula: sqrt(2 * alpha * sigma^2) * N(0,1)
                 noise_std = (2 * self.alpha * self.config.sigma_rec ** 2) ** 0.5
             else:
@@ -150,22 +154,46 @@ class EIRNNModel(CTRNNModel):
         self._ei_init_weights()
 
     def _ei_init_weights(self) -> None:
-        """Initialize weights with EI balance (E weights scaled by I/E ratio).
+        """Initialize weights.
 
-        This matches the reference implementation where E columns of the recurrent
-        weight matrix are scaled by (e_size / i_size) to balance excitatory and
-        inhibitory inputs to each unit.
+        Default ('kaiming'): EI balance — E columns of the recurrent weight matrix are
+        scaled by (e_size / i_size) to balance excitatory and inhibitory inputs.
+
+        'gamma' (Battista-2026 recipe): |W_rec| ~ Gamma(4, 4); the E/I balance scaling
+        is skipped. With ``no_self_connections`` the diagonal is zeroed, and with
+        ``spectral_radius`` the effective matrix |W| @ diag(sign) is rescaled to the
+        target radius. The stored parameter stays non-negative (Dale signs are applied
+        on the fly in ``_recurrent_weight``).
         """
         e_size = self.e_size
         i_size = self.i_size
-        if i_size == 0:
-            return
+        cfg = self.config
+        gamma_init = getattr(cfg, "init_method", "kaiming") == "gamma"
+        no_self = getattr(cfg, "no_self_connections", False)
+        rho = getattr(cfg, "spectral_radius", None)
 
         with torch.no_grad():
-            # Scale E columns of recurrent weight by E-I ratio
-            # This balances E and I contributions: each E unit's weight is scaled down
-            # because there are more E units than I units
-            self.h2h.weight[:, :e_size] /= (e_size / i_size)
+            if gamma_init:
+                M = cfg.latent_dim
+                W = torch.distributions.Gamma(4.0, 4.0).sample((M, M))
+                self.h2h.weight.data.copy_(W)
+            elif i_size > 0:
+                # Scale E columns of recurrent weight by E-I ratio
+                # This balances E and I contributions: each E unit's weight is scaled down
+                # because there are more E units than I units
+                self.h2h.weight[:, :e_size] /= (e_size / i_size)
+
+            if no_self or rho is not None:
+                # Work on the effective signed matrix |W| @ diag(sign), then store back
+                # its magnitude (signs are re-applied on the fly during recurrence).
+                sign = torch.diagonal(self.dale_mask)  # (M,) +1 E / -1 I
+                eff = self.h2h.weight.data.abs() * sign.unsqueeze(0)
+                if no_self:
+                    eff.fill_diagonal_(0.0)
+                if rho is not None:
+                    radius = torch.linalg.eigvals(eff).abs().max()
+                    eff = eff * (rho / radius)
+                self.h2h.weight.data.copy_(eff.abs())
 
     def readout(self, z_t: torch.Tensor) -> torch.Tensor:
         """Readout from excitatory units only (long-range projections are excitatory)."""

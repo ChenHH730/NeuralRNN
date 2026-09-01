@@ -15,7 +15,7 @@ from typing import Any
 @dataclass
 class DatasetSpec:
     """Registry entry describing a named dataset (see DATASET_REGISTRY)."""
-    kind: str                                   # neurogym / timeseries / behavioral / trained_rnn / trajectory
+    kind: str  # neurogym / cognitive_task / timeseries / behavioral / rl_experiment / trained_rnn / trajectory
     loader: str | None = None                   # "module:function", returns a dataset object
     url: str | None = None                      # download URL (bare URL / Dataverse / Zenodo / OSF)
     files: dict[str, str] | None = None         # logical_name -> filename
@@ -138,6 +138,12 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
         loader="neuralrnn.data.bartolo_monkey_dataset:BartoloMonkeyDataset.load",
         extra={"animal_name": "V"},
     ),
+    # Qian & Burrell (2024): simulated contingency experiment for value-RNNs
+    # (procedurally generated; mode = conditioning / degradation / cue-c)
+    "contingency": DatasetSpec(
+        kind="rl_experiment",
+        loader="neuralrnn.data.contingency_dataset:ContingencyDataset.from_params",
+    ),
     # Append new paper entries here ...
 }
 
@@ -183,7 +189,7 @@ def load_dataset(name: str, **overrides):
         task_name = spec.extra.get("task_name", name)
         return loader(task_name=task_name, **overrides)
 
-    if spec.kind == "behavioral":
+    if spec.kind in ("behavioral", "rl_experiment"):
         loader = _resolve(spec.loader)
         extra = {**spec.extra, **overrides}
         return loader(**extra)
