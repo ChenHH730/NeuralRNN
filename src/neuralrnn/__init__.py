@@ -4,7 +4,7 @@ Brings two front-line paradigms under one transformers-style API:
   Paradigm A -- optimize and train RNNs on cognitive tasks, with interpretability analysis
   (fixed points / vector fields / dimensionality reduction);
   Paradigm B -- reconstruct dynamics directly from neural / behavioral data
-  (PLRNN / LFADS / low-rank / Tiny RNN).
+  (PLRNN / low-rank / Latent circuit).
 
 Core abstraction: every model is a "discrete dynamical system with readout". Implementing only
 `recurrence` and `readout` is enough to plug into the unified Trainer (paradigm differences are
@@ -13,7 +13,7 @@ handled by Objective) and analysis modules.
 
 from __future__ import annotations
 
-__version__ = "0.3.5"
+__version__ = "0.4.0"
 
 # Core base classes / output container
 from .configuration_utils import (

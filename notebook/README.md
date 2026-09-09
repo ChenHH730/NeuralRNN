@@ -19,22 +19,29 @@ These notebook introduce the key features of NeuralRNN, including model architec
 | [12_multitask](12_multitask_paradigmA.ipynb) | Task | Yang et al. (2019) | `multitask_yang` dataset · 20-task CTRNN · task variance clusters |
 | [13_flexible_multitask](13_flexible_multitask_paradigmA.ipynb) | Task | Driscoll et al. (2024) | dynamic motifs |
 | [14_activation](14_activation_paradigmA.ipynb) | Task | Tolmachev & Engel (2025) | activation function comparison |
-| [15_neural_sequence](15_neural_sequence_paradigmA.ipynb) | Task | Orhan & Ma (2019); Zhou et al. (2023) Figure 3 | inline Orhan/Zhou T+WM tasks · `ctrnn` · `ei_rnn` · sequentiality index · effective dimensionality · ramp-to-sequence transition |
-| [16_connectome_rnn](16_connectome_rnn_paradigmB.ipynb) | Reconstruction | Beiran & Litwin-Kumar (2025) | `gain_rnn` · cycling task · teacher-student (shared J, gain/bias only) · Fig.1 readout-trained student · Fig.2 recorded-activity students (M=20/40/80/120, `ReconstructionObjective`) |
-| [17_multi_area_rnn](17_multi_area_rnn_paradigmA.ipynb) | Task | Kleinman et al. (2025) | `multiarea_rnn` (+ manual `constrained_rnn` masks) · checkerboard task · information bottleneck across 3 areas · dPCA · W21/W32 SVD alignment |
-| [18_rl_rnn](18_rl_rnn_paradigmA.ipynb) | RL | Battista et al. (2026) | `actor_critic` (E-I core) · ECHOICE env · PPO (`RLTrainer`) · 3-phase learning curve · inferred relative values · unit tuning · participation ratio |
-| [19_value_rnn](19_value_rnn_paradigmA.ipynb) | RL | Qian & Burrell (2024) Fig. 6 | `gated_rnn` (GRU value-RNN) · `contingency` dataset · TD(0) (`TDObjective` + `Trainer`) · RPE event bars · value/RPE traces · CCA alignment · belief R² |
+| [15_neural_sequence](15_neural_sequence_paradigmA.ipynb) | Task | Orhan & Ma (2019); Zhou et al. (2023) Figure 3 | `ctrnn` · `ei_rnn` · sequentiality index |
+| [16_connectome_rnn](16_connectome_rnn_paradigmB.ipynb) | Reconstruction | Beiran & Litwin-Kumar (2025) | `gain_rnn` · teacher-student · `ReconstructionObjective`|
+| [17_multi_area_rnn](17_multi_area_rnn_paradigmA.ipynb) | Task | Kleinman et al. (2025) | `multiarea_rnn` information bottleneck |
+| [18_rl_rnn](18_rl_rnn_paradigmA.ipynb) | RL | Battista et al. (2026) | `actor_critic` · `RLTrainer`|
+| [19_value_rnn](19_value_rnn_paradigmA.ipynb) | RL | Qian & Burrell (2024) | `gated_rnn` · `TDObjective`|
 | [cognitive_tasks](cognitive_tasks.ipynb) | Tutorial | — | Visualize all built-in cognitive tasks (inputs / targets / masks) |
 | [objectives](objectives.ipynb) | Tutorial | — | `Objective` layer, built-in objectives, loss terms, custom objectives, `build_objective` |
+| [reinforcement learning](reinforcement_lerning.ipynb) | Tutorial | — | `RL` layer · `actor_critic` |
 | [quickstart](quickstart.ipynb) | Tutorial | — | quick start of two paradigms |
 
 
-These notebook implement more previous works with the shared architecture of NeuralRNN (using `AutoModel` / `Trainer` / `analysis`).
+These notebook implement more studies with **NeuralRNN** (using `AutoModel` / `Trainer` / `analysis`).
 
-| Notebook | Paradigm | Reference | Key API |
-|---|---|---|---|
-| [s1_plumetracknets](s1_plumetracknets.ipynb) | RL | Singh et al. (2023) | `actor_critic` continuous-action (VRNN core) · plume env (replayed turbulence sim + centerline) · two-stage PPO curriculum (5 seeds × 1M+4M steps) · fixed-grid eval · TRACK/RECOVER/SEARCH regimes · centerline-vs-wind course direction · odor-memory window scan + RF readout · common PCA / limit cycle · eigenspectra + timescales · TTL/TTT asymmetry |
-| [s2_metalearning](s2_metalearning.ipynb) | RL | Jensen, Hennequin & Mattar (2024) | `actor_critic` (GRU core + world-model aux head) · maze env (toroidal 4×4 + think action) · `WorldModelPlanner` imagined rollouts fed back as input · A2C + prediction loss (`A2CPredLoss`) · ~200M-step training · exploitation vs BFS optimum · difficulty-dependent thinking · planning ablation / forced & causal rollouts · replay content (walls, goal over-representation, build-up, following) · rollout-as-policy-gradient alignment · world-model learning curve |
+| Notebook | Paradigm | Reference |
+|---|---|---|
+| [plumetracknets](s1_plumetracknets.ipynb) | RL | Singh et al. (2023) | 
+| [metalearning](s2_metalearning.ipynb) | RL | Jensen, Hennequin & Mattar (2024) | 
+| [multi agents](s3_environment_chase.ipynb) | RL |Zhang et al. (2025) |
+| [grid cell](s4_grid.ipynb) | Task | Sorscher et al. (2023) |
+| [tree structure](s5_tree_structure.ipynb) | Task | Zou et al. (2023) |
+| [observer experience](s6_evidence_asymmetry.ipynb) | Task | Chen et al. (2026) |
+| [free recall](s7_free_recall.ipynb) | Task | Li et al. (2026) |
+| [manifold and circuit](s8_manifold_and_circuit.ipynb) | Task | Pezon et al. (2026) |
 
 **Checkpoints & figures**: every notebook is load-first — training runs save to `models/<nn>/` (unnumbered notebooks use their name, e.g. `models/quickstart/`) and are skipped automatically when a checkpoint already exists (set the notebook's `overwrite` flag or delete the checkpoint to retrain). All generated figures are saved to `figs/<nn>/` at dpi=150 in addition to being displayed inline.
 
