@@ -3,9 +3,11 @@
   NeuralRNN
 </h1>
 
+[![Articles](https://img.shields.io/badge/Article-doi.org/10.64898/2026.09.14.751453-white?logo=arxiv&logoColor=white)](https://doi.org/10.64898/2026.09.14.751453)  [![Read the Docs](https://img.shields.io/badge/Document-online-white?logo=read-the-docs&logoColor=white)](https://neuralrnn.readthedocs.io/) 
+
 ---
 
-**NeuralRNN [[Docs](https://neuralrnn.readthedocs.io/en/latest/)] is A unified framework for implementing RNN methods in cognitive neuroscience** — bringing two major paradigms under a single interface:
+**[NeuralRNN](https://neuralrnn.readthedocs.io/en/latest/) is A unified framework for implementing RNN methods in cognitive neuroscience** — bringing two major paradigms under a single interface:
 
 - **Paradigm A: Task Optimization**[^1]: Train RNNs on cognitive tasks, then reverse-engineer how they perform computation using analyses including fixed points, vector fields, dimensionality reduction, etc. The goal is to use RNNs as a proxy for cognitive computation.
 - **Paradigm B: Dynamical System Reconstruction (DSR)**[^2][^3]: Fit generative RNNs directly from neural/behavioral time series that can reproduce attractors, power spectra, and Lyapunov spectra of the target system.
@@ -117,64 +119,21 @@ notebook/                  # end-to-end tutorials for each paper
 | actor-critic RNN (RL) | A | ✅ |
 | value RNN (critic-only TD) | A | ✅ |
 
-The second column shows the corresponding paradigm used in the original work.  
 
-## Reinforcement Learning
-
-The `rl` subpackage turns any registered RNN core into an RL agent and trains it
-with on-policy algorithms, reusing the same `AutoConfig` / `AutoModel` /
-`save_pretrained` machinery as the rest of the framework:
-
-```python
-from neuralrnn import (ActorCriticConfig, ActorCriticModel, RLTrainer,
-                       RLTrainingArguments, SyncVectorEnv, make_env)
-
-envs = SyncVectorEnv([make_env("echochoice", rules=(0,), seed=i) for i in range(32)])
-agent = ActorCriticModel(ActorCriticConfig(
-    core_config={"model_type": "ei_rnn", "input_dim": 16, "latent_dim": 256, ...},
-    action_dim=4))
-RLTrainer(agent, envs, RLTrainingArguments(output_dir="ckpt/")).train()
+## Citation
+```bibtex
+@article {Chen2026.09.14.751453,
+	author = {Chen, Honghua and Ding, Nai},
+	title = {NeuralRNN: a unified framework for recurrent neural network methods in cognitive neuroscience},
+	elocation-id = {2026.09.14.751453},
+	year = {2026},
+	doi = {10.64898/2026.09.14.751453},
+	publisher = {Cold Spring Harbor Laboratory},
+	URL = {https://www.biorxiv.org/content/early/2026/09/21/2026.09.14.751453},
+	eprint = {https://www.biorxiv.org/content/early/2026/09/21/2026.09.14.751453.full.pdf},
+	journal = {bioRxiv}
+}
 ```
-
-See `docs/RL_PLAN.md` for the design and
-[`notebook/18_rl_rnn_paradigmA.ipynb`](notebook/18_rl_rnn_paradigmA.ipynb) for a
-full reproduction (reduced config) of the E-I actor-critic RNN of Battista et
-al. (2026) on the ECHOICE economic-choice battery. Continuous-action agents
-(diagonal Gaussian heads over any core) are supported too — see
-[`notebook/s1_plumetracknets.ipynb`](notebook/s1_plumetracknets.ipynb) for a
-reproduction of the PPO-trained plume-tracking RNN of Singh et al. (2023),
-including the replayed-turbulence env (`make_env("plume")`), the fixed-grid
-evaluation assay (`rl.plume_eval`) and the paper's behavior/neural analyses
-(notebook-local plume utils): behavioral regimes, centerline-vs-wind course
-direction on
-the non-stationary wind datasets, odor-memory window scans, common-subspace /
-limit-cycle dynamics, eigenspectrum reorganization and transition-time
-asymmetry. New algorithms plug in via
-`register_rl_loss` (built-ins: `PPOLoss`, `ReinforceLoss`); new environments
-via `register_env` (built-ins:
-`echochoice`, `plume`, `maze`, `neurogym:<Task>`, `gym:<id>`). For a guided tour of
-the RL layer, see
-[`notebook/reinforcement_learning.ipynb`](notebook/reinforcement_learning.ipynb)
-(REINFORCE + value baseline on neurogym PDM, after Song, Yang & Wang 2017).
-Model-based planning on top of a learned world model is supported through the
-agent's auxiliary prediction head plus `rl.planning.WorldModelPlanner`
-(imagined rollouts fed back as observation channels) — see
-[`notebook/s2_metalearning.ipynb`](notebook/s2_metalearning.ipynb) for a
-reproduction of the maze meta-learning / replay agent of Jensen, Hennequin &
-Mattar (2024), trained with `A2CPredLoss` (REINFORCE + value + entropy +
-world-model cross-entropy) on `make_env("maze")`.
-
-Critic-only value learning (no policy) is covered without the RL trainer:
-`TDObjective` + the generic `Trainer` turn any RNN core with a scalar readout
-into a value-RNN; `ContingencyDataset` (Pavlovian contingency experiments) and
-`neuralrnn.rl.probe` / `analysis.cca` (multi-view state-space alignment)
-support the analyses. See
-[`notebook/19_value_rnn_paradigmA.ipynb`](notebook/19_value_rnn_paradigmA.ipynb)
-for a reproduction (reduced config) of Fig. 6 of Qian & Burrell (2024).
-
-## Porting New Papers into the Framework
-
-Core principle: **Porting = writing adapters (wrapping + verification), not rewriting mathematics**. Any model that implements `recurrence/readout` is plug-and-play; the analysis layer works only through the model's public contract and never imports specific model classes.
 
 ## License
 
