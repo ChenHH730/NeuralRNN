@@ -84,6 +84,22 @@ class TestRegistration:
         assert not grads["input2h.bias"]
         assert model.input2h.bias.abs().sum().item() == 0.0
 
+    @pytest.mark.parametrize(
+        "positive_func, expected",
+        [("rectify", [0.0, 2.0]), ("abs", [1.0, 2.0])],
+    )
+    def test_dale_recurrent_magnitude_transform(self, positive_func, expected):
+        """The inherited E/I transform is active in the constrained lineage."""
+        model = _make_stp(
+            latent_dim=2, dale=True, ei_ratio=0.5,
+            ei_positive_func=positive_func,
+        )
+        with torch.no_grad():
+            model.h2h.weight.copy_(torch.tensor([[-1.0, 2.0], [-1.0, 2.0]]))
+        effective = model._recurrent_weight()
+        # First source column is excitatory, second is inhibitory.
+        assert torch.allclose(effective[0].abs(), torch.tensor(expected))
+
 
 # ============================ STP dynamics ============================
 
@@ -364,8 +380,10 @@ class TestAnalysis:
     def test_jacobian_m_dim(self):
         model = _make_stp()
         model.eval()
-        J = model.jacobian(torch.rand(6) * 0.5)
-        assert J.shape == (6, 6)
+        with pytest.raises(ValueError, match="complete state"):
+            model.jacobian(torch.rand(6) * 0.5)
+        J = model.jacobian(model.init_state(1)[0])
+        assert J.shape == (18, 18)
         assert torch.isfinite(J).all()
 
     def test_fixed_point_finder_smoke(self):
@@ -374,7 +392,10 @@ class TestAnalysis:
         model = _make_stp()
         finder = NumericFixedPointFinder(n_candidates=4, n_iters=5)
         fps = finder.find(model)
-        assert len(fps.points) >= 1  # fallback keeps the best candidate
+        # A short search may have no converged points; do not invent one.
+        for fp in fps.points:
+            assert fp.z.shape == (18,)
+            assert fp.speed < finder.speed_tol
 
     def test_dropout_h_only(self):
         model = _make_stp()

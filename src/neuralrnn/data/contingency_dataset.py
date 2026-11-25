@@ -2,8 +2,10 @@
 
 Simulated Pavlovian contingency experiments used to train value-RNNs
 (critic-only RNNs trained with TD learning) and belief-state reference models.
-Ported from Qian & Burrell (2024/2025, Nat. Neurosci.) ``value_rnn`` package
-(``valuernn/tasks/contingency.py`` and ``valuernn/tasks/trial.py``).
+This is a NeuralRNN reimplementation of the experimental protocol described by
+Qian & Burrell (2024/2025, Nat. Neurosci.).  The public ``value_rnn`` task code
+(``valuernn/tasks/contingency.py`` and ``valuernn/tasks/trial.py``) was
+consulted for the task conventions and data layout.
 
 Trial structure (time step ``dt``, default 0.5 s in the reference):
 

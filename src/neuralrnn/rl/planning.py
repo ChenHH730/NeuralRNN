@@ -7,8 +7,10 @@ simulated action sequence back as an observation. The rollout changes the
 policy purely through recurrent dynamics (the feedback input updates the
 hidden state), not through weight updates.
 
-This is the planning protocol of Jensen, Hennequin & Mattar (2024, Nature
-Neuroscience; ported from ``model_planner.jl`` / ``planning.jl``):
+This is a NeuralRNN reimplementation of the planning protocol described by
+Jensen, Hennequin & Mattar (2024, Nature Neuroscience).  The public
+``model_planner.jl`` and ``planning.jl`` implementations were consulted for
+the protocol and interface conventions:
 
 1. The believed goal is the argmax of the reward-location slice of the aux
    head, computed from the current hidden state and the think action.

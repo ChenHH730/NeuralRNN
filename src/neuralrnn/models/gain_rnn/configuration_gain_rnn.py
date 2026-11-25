@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 
 from ..constrained_rnn.configuration_constrained_rnn import ConstrainedRNNConfig
+from ...configuration_utils import SUPPORTED_NOISE_POSITIONS, validate_noise_position
 
 # Where the per-neuron gain sits relative to the nonlinearity (see gain_rnn.md §6):
 #   "outside": r = g * phi(u + b)  — pure amplitude modulation, equivalent to
@@ -37,7 +38,7 @@ SUPPORTED_GAIN_POSITIONS = ("outside", "inside")
 #           (state-level noise; with noise_alpha_scaling=True the std is
 #           sqrt(2*alpha)*sigma, matching both Masse-style (post_blend) and
 #           Zhou & Buonomano 2024 (rate) discretizations).
-SUPPORTED_NOISE_POSITIONS = ("pre", "post")
+#   "state": added after the final activation.
 
 # How per-neuron STP constants (tau_x, tau_u, U) are initialized when they are
 # given as scalars:
@@ -63,11 +64,6 @@ def _validate_choice(value: str, supported: tuple[str, ...], field: str, model_t
 def validate_gain_position(position: str, *, model_type: str = "") -> str:
     """Validate a ``gain_position`` value (see ``SUPPORTED_GAIN_POSITIONS``)."""
     return _validate_choice(position, SUPPORTED_GAIN_POSITIONS, "gain_position", model_type)
-
-
-def validate_noise_position(position: str, *, model_type: str = "") -> str:
-    """Validate a ``noise_position`` value (see ``SUPPORTED_NOISE_POSITIONS``)."""
-    return _validate_choice(position, SUPPORTED_NOISE_POSITIONS, "noise_position", model_type)
 
 
 def validate_stp_init(init: str, *, model_type: str = "") -> str:
@@ -103,7 +99,7 @@ class GainRNNConfig(ConstrainedRNNConfig):
         freeze_bias: Freeze the bias parameters.
         noise_position: "pre" (default; noise on the pre-activation, CTRNN
             behavior) or "post" (noise on the leaked blend before the final
-            nonlinearity). See ``SUPPORTED_NOISE_POSITIONS``.
+            nonlinearity), or "state" after the final activation.
         positive_input_weights: If True, ReLU is applied to the input weights
             in the forward pass (Dale-style soft constraint).
         positive_output_weights: If True, ReLU is applied to the readout
@@ -146,7 +142,7 @@ class GainRNNConfig(ConstrainedRNNConfig):
                 f"{self.model_type}: activation_params must be a dict or None, "
                 f"got {type(activation_params).__name__}"
             )
-        super().__init__(**kwargs)
+        super().__init__(noise_position=noise_position, **kwargs)
         self.gain_position = gain_position
         self.gain_init = gain_init
         self.bias_init = bias_init

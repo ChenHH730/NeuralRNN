@@ -10,7 +10,6 @@ from .supervised import SupervisedObjective
 from .regularized_supervised import RegularizedSupervisedObjective
 from .teacher_forcing import TeacherForcingObjective, generalized_teacher_forcing
 from .behavioral import BehavioralObjective
-from .variational import VariationalObjective
 from .reconstruction import ReconstructionObjective
 from .constrained import ConstrainedSupervisedObjective
 from .td import TDObjective
@@ -26,7 +25,6 @@ __all__ = [
     "TeacherForcingObjective",
     "generalized_teacher_forcing",
     "BehavioralObjective",
-    "VariationalObjective",
     "ReconstructionObjective",
     "ConstrainedSupervisedObjective",
     "TDObjective",

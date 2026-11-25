@@ -30,6 +30,7 @@ from .fixed_points import (
     AnalyticPLRNNFixedPointFinder,
     FixedPoint,
     FixedPointSet,
+    CandidateDiagnostic,
 )
 from .linearization import (
     linearize,
@@ -117,6 +118,7 @@ __all__ = [
     "AnalyticPLRNNFixedPointFinder",
     "FixedPoint",
     "FixedPointSet",
+    "CandidateDiagnostic",
     # -- linearization --
     "linearize",
     "classify_fixed_point",

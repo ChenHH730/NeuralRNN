@@ -16,6 +16,7 @@ import numpy as np
 import torch
 
 from ..modeling_utils import NeuralDynamicsModel
+from ._context import deterministic_analysis
 from .dimensionality import fit_pca, PCAResult
 
 
@@ -56,6 +57,7 @@ class LineAttractorResult:
 
 
 @torch.no_grad()
+@deterministic_analysis
 def find_line_attractor_endpoints(
     model: NeuralDynamicsModel,
     *,
@@ -84,11 +86,13 @@ def find_line_attractor_endpoints(
     """
     model.eval()
     device = next(model.parameters()).device
-    M = model.config.latent_dim
+    M = model.state_dim
     input_dim = model.config.input_dim
 
-    z0 = initial_state if initial_state is not None else torch.zeros(M, device=device)
-    ctx = context_input.to(device)
+    z0 = initial_state.to(device=device, dtype=next(model.parameters()).dtype) if initial_state is not None else model.init_state(1, device)[0]
+    ctx = context_input.to(device=device, dtype=next(model.parameters()).dtype)
+
+    model.validate_state(z0)
 
     # Generate perturbed inputs: negative and positive directions
     nudge = torch.randn(input_dim, device=device) * nudge_scale
@@ -113,6 +117,7 @@ def find_line_attractor_endpoints(
 
 
 @torch.no_grad()
+@deterministic_analysis
 def walk_line_attractor(
     model: NeuralDynamicsModel,
     *,
@@ -142,13 +147,13 @@ def walk_line_attractor(
 
     model.eval()
     device = next(model.parameters()).device
-    M = model.config.latent_dim
+    M = model.state_dim
 
-    ctx = context_input.to(device)
+    ctx = context_input.to(device=device, dtype=next(model.parameters()).dtype)
 
     def rhs_norm_sq(z_np):
         """½‖F(z) − z‖² at z (numpy (M,) -> float), under the context input."""
-        z_t = torch.as_tensor(z_np, dtype=torch.float32, device=device).unsqueeze(0)
+        z_t = torch.as_tensor(z_np, dtype=next(model.parameters()).dtype, device=device).unsqueeze(0)
         xin = ctx.unsqueeze(0)
         with torch.no_grad():
             f = model.recurrence(xin, z_t).squeeze(0)
@@ -157,10 +162,13 @@ def walk_line_attractor(
 
     def rhs_jacobian(z_np):
         """Jacobian of F(z) − z at z: J_F − I (numpy (M,) -> (M, M))."""
-        z_t = torch.as_tensor(z_np, dtype=torch.float32, device=device)
+        z_t = torch.as_tensor(z_np, dtype=next(model.parameters()).dtype, device=device)
         xin = ctx.unsqueeze(0)
         J = model.jacobian(z_t, inputs=xin).cpu().numpy()
         return J - np.eye(M)
+
+    model.validate_state(torch.as_tensor(endpoint_left))
+    model.validate_state(torch.as_tensor(endpoint_right))
 
     # Linearly interpolated initial guesses
     alphas = np.linspace(0, 1, n_points)
@@ -201,6 +209,7 @@ def walk_line_attractor(
 
 
 @torch.no_grad()
+@deterministic_analysis
 def compute_line_attractor(
     model: NeuralDynamicsModel,
     *,

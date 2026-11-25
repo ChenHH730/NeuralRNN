@@ -142,26 +142,37 @@ class TestAnalyticBackend:
                                    output_dim=3, hidden_dim=10, autonomous=False)
         model = AutoModel.from_config(cfg)
         task_input = torch.tensor([0.3, -0.2], dtype=torch.float32)
+        with torch.no_grad():
+            model.A.copy_(torch.tensor([0.5, 0.6, 0.7]))
+            model.W1.zero_()
+            model.W2.zero_()
+            model.h1.zero_()
+            model.h2.fill_(-10.0)
+            model.C.copy_(
+                torch.tensor([[0.1, 0.0], [0.0, 0.2], [0.1, -0.1]])
+            )
+        drive = model.C @ task_input
+        expected = drive / (1.0 - model.A.detach())
 
         fps_analytic = find_fixed_points(model, backend="analytic", task_input=task_input,
-                                         max_order=1, outer_it=20, inner_it=10)
+                                         max_order=1, outer_it=5, inner_it=5, seed=0)
         fps_numeric = find_fixed_points(model, backend="numeric", task_input=task_input,
-                                        n_candidates=32, n_iters=2000, speed_tol=0.5)
-
-        if len(fps_analytic) == 0 or len(fps_numeric) == 0:
-            pytest.skip("One backend found no fixed points")
+                                        init_states=expected[None], n_candidates=1,
+                                        n_iters=10, speed_tol=1e-5)
 
         # The lowest-speed numeric point should be close to some analytic point
+        assert len(fps_analytic) > 0
+        assert len(fps_numeric) > 0
         best_numeric = min(fps_numeric.points, key=lambda p: p.speed)
         distances = [np.linalg.norm(best_numeric.z - p.z) for p in fps_analytic.points]
-        assert min(distances) < 0.5, "Numeric and analytic fixed points disagree"
+        assert min(distances) < 1e-5, "Numeric and analytic fixed points disagree"
 
     def test_analytic_ignores_task_input_for_autonomous_model(self, plrnn_model):
         task_input = torch.tensor([0.3, -0.2], dtype=torch.float32)
         fps_with = find_fixed_points(plrnn_model, backend="analytic", task_input=task_input,
-                                     max_order=1, outer_it=10, inner_it=5)
+                                     max_order=1, outer_it=10, inner_it=5, seed=0)
         fps_without = find_fixed_points(plrnn_model, backend="analytic",
-                                        max_order=1, outer_it=10, inner_it=5)
+                                        max_order=1, outer_it=10, inner_it=5, seed=0)
         assert len(fps_with) == len(fps_without)
         if len(fps_with) > 0 and len(fps_without) > 0:
             coords_with = np.sort(fps_with.coords(), axis=0)

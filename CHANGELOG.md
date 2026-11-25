@@ -2,6 +2,34 @@
 
 All notable changes to NeuralRNN are documented in this file.
 
+## [0.5.0] - Unreleased
+
+### Licensing
+
+- Changed the project license from MIT to GPL-3.0-only so that the distributed
+  work is compatible with the GPL-licensed implementations adapted by the
+  framework.
+- Added a file-level source and license ledger for the installable package,
+  retained the applicable upstream MIT and Apache notices, and included all
+  legal files in wheel and source archives.
+- Clarified which components adapt licensed source code and which independently
+  reimplement published methods, task protocols or interfaces.
+
+### Packaging
+
+- Replaced the legacy Gym dependency with Gymnasium. A standard
+  `pip install neuralrnn` installs the complete supported task, RL and notebook
+  stack without requiring extras suffixes.
+
+### Fixed
+
+- Kept the nn-brain tutorial as the E-I default recipe; the pycog constraints,
+  initialization, spectral scaling, trainable initial current, and bias policy
+  remain available through explicit configuration.
+- Replaced obsolete and stochastic test skips with deterministic reconstruction,
+  fixed-point, and manifold checks. The Python 3.11 suite now completes with
+  857 passed, 0 skipped, and 0 failed tests (75% statement coverage).
+
 ## [0.4.0] - 2026-09-02
 
 Reinforcement learning layer: a generic RL-RNN framework (environment / agent / loss / trainer) plus reproductions of published RL-RNN studies.

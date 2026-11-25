@@ -47,6 +47,7 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
     analytic (see jacobian / analytic_parameters). Readout observes the first
     output_dim latent units (identity observation; B = [I_N | 0] when M > N).
     """
+    identity_observation = True
     config_class = ShallowPLRNNConfig
 
     def __init__(self, config: ShallowPLRNNConfig) -> None:
@@ -82,10 +83,12 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
         """Single PLRNN step. x_t: (B, K) or None, z_prev: (B, M) -> z_t: (B, M)."""
         # PLRNN is defined by a piecewise-linear ReLU nonlinearity; changing it
         # would invalidate the analytic Jacobian / fixed-point machinery below.
-        z = self.A * z_prev + torch.relu(z_prev @ self.W2.T + self.h2) @ self.W1.T + self.h1
+        drive = self._add_recurrent_noise(z_prev @ self.W2.T + self.h2, "pre")
+        z = self.A * z_prev + torch.relu(drive) @ self.W1.T + self.h1
         if self.C is not None and x_t is not None:
             z = z + x_t @ self.C.T
-        return z
+        z = self._add_recurrent_noise(z, "post")
+        return self._add_recurrent_noise(z, "state")
 
     def readout(self, z_t):
         """Identity observation of the first output_dim latent units. (B, M) -> (B, N)."""
@@ -103,7 +106,7 @@ class ShallowPLRNNModel(NeuralDynamicsModel):
     def jacobian(self, z: torch.Tensor, *, inputs=None) -> torch.Tensor:
         """Analytic Jacobian: diag(A) + W1 diag(1[W2 z + h2 > 0]) W2. z:(M,) -> (M,M).
         Should be allclose to the base-class autodiff result (except at ReLU boundaries)."""
-        d = (self.W2 @ z > -self.h2).float()           # (L,) indicator vector
+        d = (self.W2 @ z > -self.h2).to(z.dtype)     # (L,) indicator vector
         return torch.diag(self.A) + self.W1 @ torch.diag(d) @ self.W2
 
     def analytic_parameters(self, task_input: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
@@ -143,6 +146,7 @@ class DendPLRNNModel(NeuralDynamicsModel):
     recurrence follows the BPTT reference implementation in
     dendPLRNN/BPTT_TF/bptt/PLRNN_model.py.
     """
+    identity_observation = True
     config_class = DendPLRNNConfig
 
     def __init__(self, config: DendPLRNNConfig) -> None:
@@ -234,14 +238,16 @@ class DendPLRNNModel(NeuralDynamicsModel):
         z_t = A ⊙ z + basis(z) @ Wᵀ + h [+ C @ x_t]; with clip_range and no
         clipping basis, states are hard-clamped to ±clip_range (reference behavior).
         """
-        z = self.A * z_prev + self._basis(z_prev) @ self.W.t() + self.h
+        drive = self._add_recurrent_noise(z_prev, "pre")
+        z = self.A * z_prev + self._basis(drive) @ self.W.t() + self.h
         if self.C is not None and x_t is not None:
             z = z + x_t @ self.C.t()
+        z = self._add_recurrent_noise(z, "post")
         # Clipped basis expansion is bounded by construction -> no hard state clamp
         # (reference applies clip_z_to_range only to the unclipped variants).
         if self.clip_range is not None and not self.use_clipping:
             z = torch.clamp(z, -self.clip_range, self.clip_range)
-        return z
+        return self._add_recurrent_noise(z, "state")
 
     def readout(self, z_t):
         """Identity observation of the first output_dim latent units. (B, M) -> (B, N)."""
@@ -325,6 +331,7 @@ class ALRNNModel(NeuralDynamicsModel):
 
     Only the last P = latent_dim - n_linear units are ReLU; the rest are linear.
     """
+    identity_observation = True
     config_class = ALRNNConfig
 
     def __init__(self, config: ALRNNConfig) -> None:
@@ -414,12 +421,14 @@ class ALRNNModel(NeuralDynamicsModel):
         M-P units linear and ReLU-activating the last P; states are clamped
         to ±clip_range when clip_range is set (reference behavior).
         """
-        z = self.A * z_prev + self._phi_star(z_prev) @ self.W.t() + self.h
+        drive = self._add_recurrent_noise(z_prev, "pre")
+        z = self.A * z_prev + self._phi_star(drive) @ self.W.t() + self.h
         if self.C is not None and x_t is not None:
             z = z + x_t @ self.C.t()
+        z = self._add_recurrent_noise(z, "post")
         if self.clip_range is not None:
             z = torch.clamp(z, -self.clip_range, self.clip_range)
-        return z
+        return self._add_recurrent_noise(z, "state")
 
     def readout(self, z_t):
         """Identity observation of the first output_dim latent units. (B, M) -> (B, N)."""

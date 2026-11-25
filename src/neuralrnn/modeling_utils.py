@@ -14,6 +14,7 @@ Tensor shape convention (unified across the framework, batch-first):
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -37,7 +38,7 @@ class DynamicsModelOutput:
     outputs: torch.Tensor | None = None   # readout y_{1:T}     (B, T, output_dim)
     states: torch.Tensor | None = None    # latent trajectory z_{1:T}    (B, T, latent_dim)
     loss: torch.Tensor | None = None      # loss computed inside forward, if any
-    extras: dict[str, Any] | None = None  # model-specific outputs (e.g., LFADS posterior)
+    extras: dict[str, Any] | None = None  # model-specific outputs (e.g., complete-state trajectories)
 
     def __getitem__(self, k):  # out["states"] or tensor indexing out[0, :, :]
         if isinstance(k, str):
@@ -139,6 +140,151 @@ class NeuralDynamicsModel(nn.Module):
     def __init__(self, config: NeuralRNNConfig) -> None:
         super().__init__()
         self.config = config
+        self._noise_override = None
+        self._noise_generator = None
+        self._strict_state = False
+
+    @property
+    def state_dim(self) -> int:
+        """Width of the complete Markov state, which may exceed latent_dim."""
+        p = next(self.parameters(), None)
+        return self.init_state(1, p.device if p is not None else "cpu").shape[-1]
+
+    def validate_state(self, state: torch.Tensor) -> None:
+        """Reject activity-only vectors at complete-state analysis boundaries."""
+        if state.ndim < 1 or state.shape[-1] != self.state_dim:
+            raise ValueError(f"Expected complete state of width {self.state_dim}; "
+                             f"got {tuple(state.shape)}. Use init_state or full_state_trajectory.")
+
+    @property
+    def recurrent_noise_enabled(self) -> bool:
+        """Training uses noise; evaluation opts in through evaluate_noise."""
+        return (self.training or self.evaluate_noise) if self._noise_override is None else self._noise_override
+
+    @property
+    def sigma_rec(self) -> float:
+        """Noise magnitude, kept in config for serialization and runtime edits."""
+        return self.config.sigma_rec
+
+    @sigma_rec.setter
+    def sigma_rec(self, value: float) -> None:
+        import math
+        if not math.isfinite(value) or value < 0:
+            raise ValueError("sigma_rec must be finite and nonnegative")
+        self.config.sigma_rec = float(value)
+
+    @property
+    def evaluate_noise(self) -> bool:
+        """Whether configured recurrent noise is enabled in eval mode."""
+        return self.config.evaluate_noise
+
+    @evaluate_noise.setter
+    def evaluate_noise(self, enabled: bool) -> None:
+        if not isinstance(enabled, bool):
+            raise ValueError("evaluate_noise must be bool")
+        for module in self.modules():
+            if isinstance(module, NeuralDynamicsModel):
+                module.config.evaluate_noise = enabled
+                # Keep serialized nested core configs consistent with runtime flags.
+                if isinstance(getattr(module.config, 'core_config', None), dict):
+                    module.config.core_config['evaluate_noise'] = enabled
+
+    def _noise_std(self) -> float:
+        """Standard deviation at the injection site, before subsequent transforms."""
+        sigma = self.config.sigma_rec
+        return sigma * (2 * getattr(self, 'alpha', 1.0)) ** 0.5 if self.config.noise_alpha_scaling else sigma
+
+    def _add_recurrent_noise(self, value, position, *, noise=None):
+        """Apply noise at exactly the configured location; zero noise is a no-op."""
+        if (self.config.noise_position != position or self.config.sigma_rec == 0
+                or not self.recurrent_noise_enabled):
+            return value
+        return value + self._noise_std() * (self._randn_like(value) if noise is None else noise)
+
+    def _euler_update(self, pre, state, activation):
+        """Shared Euler/nonlinearity/noise placement for CTRNN-lineage models."""
+        pre = self._add_recurrent_noise(pre, 'pre')
+        mode = self.config.nonlinearity_mode
+        if mode == 'pre_activation':
+            result = (1 - self.alpha) * state + self.alpha * activation(pre)
+            result = self._add_recurrent_noise(result, 'post')
+        else:
+            result = (1 - self.alpha) * state + self.alpha * pre
+            result = self._add_recurrent_noise(result, 'post')
+            if mode == 'post_blend':
+                result = activation(result)
+        return self._add_recurrent_noise(result, 'state')
+
+    def _randn_like(self, tensor: torch.Tensor) -> torch.Tensor:
+        return torch.randn(tensor.shape, device=tensor.device, dtype=tensor.dtype,
+                           generator=self._noise_generator)
+
+    @contextmanager
+    def noise_context(self, enabled: bool | None = None, *, generator=None):
+        """Temporarily control process noise, including nested dynamics cores.
+
+        None inherits the surrounding policy. Supply a device-matched
+        torch.Generator to isolate process noise from the global RNG.
+        """
+        if enabled is not None and not isinstance(enabled, bool):
+            raise ValueError("enabled must be True, False, or None")
+        modules = [m for m in self.modules() if isinstance(m, NeuralDynamicsModel)]
+        saved = [(m, m._noise_override, m._noise_generator) for m in modules]
+        try:
+            for m in modules:
+                if enabled is not None:
+                    m._noise_override = enabled
+                if generator is not None:
+                    m._noise_generator = generator
+            yield self
+        finally:
+            for m, policy, rng in saved:
+                m._noise_override, m._noise_generator = policy, rng
+
+    @contextmanager
+    def evaluation_context(self, *, noise=None, generator=None, strict_state=False):
+        """Restore every module mode and parameter flag, even after an exception."""
+        modes = [(m, m.training) for m in self.modules()]
+        flags = [(p, p.requires_grad) for p in self.parameters()]
+        states = [(m, m._strict_state) for m in self.modules()
+                  if isinstance(m, NeuralDynamicsModel)]
+        try:
+            self.eval()
+            for m, _ in states:
+                m._strict_state = strict_state or m._strict_state
+            with self.noise_context(noise, generator=generator):
+                yield self
+        finally:
+            for m, mode in modes:
+                m.training = mode
+            for p, flag in flags:
+                p.requires_grad_(flag)
+            for m, strict in states:
+                m._strict_state = strict
+
+    def full_state_trajectory(self, inputs=None, *, initial_state=None, n_steps=None):
+        """Differentiable packed trajectory (B,T,state_dim), excluding z0.
+
+        Uses recurrence with the current noise policy. Existing forward().states
+        retains its activity semantics. For deterministic collection use
+        evaluation_context(noise=False).
+        """
+        if inputs is not None:
+            if inputs.ndim != 3:
+                raise ValueError("inputs must be (B,T,K)")
+            batch, steps, _ = inputs.shape
+            z = self.init_state(batch, inputs.device) if initial_state is None else initial_state
+        else:
+            if initial_state is None or n_steps is None:
+                raise ValueError("Autonomous rollout requires initial_state and n_steps")
+            z, steps = initial_state, n_steps
+        self.validate_state(z)
+        trajectory = []
+        for t in range(steps):
+            z = self.recurrence(None if inputs is None else inputs[:, t], z, inputs=inputs)
+            self.validate_state(z)
+            trajectory.append(z)
+        return torch.stack(trajectory, dim=1) if trajectory else z[:, None, :][:, :0]
 
     # ====================== Parameter freezing support (ESN / reservoir computing) ======================
     def freeze_parameters(
@@ -240,7 +386,8 @@ class NeuralDynamicsModel(nn.Module):
     # ====================== Base default implementations (override allowed) ======================
     def init_state(self, batch_size: int, device: torch.device | str = "cpu") -> torch.Tensor:
         """Initial value z_0. Default zero vector; trainable initial value / encoder initial value can be overridden in subclasses."""
-        return torch.zeros(batch_size, self.config.latent_dim, device=device)
+        return torch.zeros(batch_size, self.config.latent_dim, device=device,
+                           dtype=next(self.parameters(), torch.empty(0)).dtype)
 
     def init_state_from_obs(self, x0: torch.Tensor) -> torch.Tensor:
         """Initial latent state from the first observation x0: (B, N) -> (B, M).
@@ -249,7 +396,9 @@ class NeuralDynamicsModel(nn.Module):
         x0. Models with a learned observation->latent lift (e.g. ALRNN's B matrix)
         override this.
         """
-        z = self.init_state(x0.shape[0], x0.device)
+        if x0.shape[-1] > self.config.latent_dim:
+            raise ValueError("Observation width exceeds the activity dimension")
+        z = self.init_state(x0.shape[0], x0.device).clone()
         z[..., :x0.shape[-1]] = x0
         return z
 
@@ -290,14 +439,15 @@ class NeuralDynamicsModel(nn.Module):
         """Free rollout (no teacher forcing), returning the latent trajectory
         (B, n_steps+1, M) including the given initial state at index 0.
         For analysis / evaluation."""
-        self.eval()
-        z = initial_state
-        traj = [z]
-        for t in range(n_steps):
-            x_t = inputs[:, t] if inputs is not None else None
-            z = self.recurrence(x_t, z, inputs=inputs)
-            traj.append(z)
-        return torch.stack(traj, dim=1)
+        with self.evaluation_context():
+            self.validate_state(initial_state)
+            z = initial_state
+            traj = [z]
+            for t in range(n_steps):
+                x_t = inputs[:, t] if inputs is not None else None
+                z = self.recurrence(x_t, z, inputs=inputs)
+                traj.append(z)
+            return torch.stack(traj, dim=1)
 
     # ====================== Dropout support (training only) ======================
     def forward_with_dropout(
@@ -346,7 +496,7 @@ class NeuralDynamicsModel(nn.Module):
         states_clean, outputs_clean = [], []
         for t in range(T):
             z = self.recurrence(inputs[:, t], z, inputs=inputs)
-            states_clean.append(z)
+            states_clean.append(z[..., :M])
             outputs_clean.append(self.readout(z))
 
         # ---- Dropout rollout ----
@@ -354,8 +504,9 @@ class NeuralDynamicsModel(nn.Module):
         states_dropped, outputs_dropped = [], []
         for t in range(T):
             z = self.recurrence(inputs[:, t], z, inputs=inputs)
-            z = z * mask * scale                    # apply dropout
-            states_dropped.append(z)
+            # Drop activity coordinates, preserving LSTM/STP memory variables.
+            z = torch.cat([z[..., :M] * mask * scale, z[..., M:]], dim=-1)
+            states_dropped.append(z[..., :M])
             outputs_dropped.append(self.readout(z))
 
         sc = torch.stack(states_clean, dim=1)
@@ -400,6 +551,7 @@ class NeuralDynamicsModel(nn.Module):
     def jacobian(self, z: torch.Tensor, *, inputs: torch.Tensor | None = None) -> torch.Tensor:
         """∂F/∂z evaluated at state z. Defaults to autograd; analytic models should override.
         z:(M,) -> J:(M,M)."""
+        self.validate_state(z)
         z = z.detach().requires_grad_(True)
         x_t = inputs[:1] if inputs is not None else None
 
@@ -407,7 +559,8 @@ class NeuralDynamicsModel(nn.Module):
             """Single-step map F with fixed input, unbatched: (M,) -> (M,)."""
             return self.recurrence(x_t, zz.unsqueeze(0)).squeeze(0)
 
-        return torch.autograd.functional.jacobian(f, z)
+        with self.evaluation_context(noise=False, strict_state=True), torch.enable_grad():
+            return torch.autograd.functional.jacobian(f, z)
 
     def analytic_parameters(self, task_input: torch.Tensor | None = None) -> dict[str, torch.Tensor]:
         """Expose parameters needed by analytic fixed-point / cycle solvers.

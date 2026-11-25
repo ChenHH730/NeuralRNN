@@ -7,7 +7,7 @@ docs/ARCHITECTURE.md
 docs/PORTING_GUIDE.md
 docs/papers/*_cn.md
 notebook/figs/
-notebook/models/
+notebook/models*/
 notebook/deprecated/
 notebook/test_analysis_fixes.py
 notebook/test.ipynb
@@ -19,8 +19,10 @@ notebook/_*
 temp/
 test/_**
 tests/
+*.mat
 # C extensions
 *.so
+.scratch/
 scripts/*
 # Distribution / packaging
 .Python

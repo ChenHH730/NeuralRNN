@@ -9,7 +9,14 @@ from __future__ import annotations
 
 from .supervised import SupervisedObjective
 from .registry import register_objective
-from ..losses import activity_l2, weight_l2, model_orthogonality_penalty
+from ..losses import (
+    accuracy_classification,
+    activity_l2,
+    masked_cross_entropy,
+    masked_mse,
+    model_orthogonality_penalty,
+    weight_l2,
+)
 
 
 @register_objective("regularized_supervised")
@@ -68,24 +75,33 @@ class RegularizedSupervisedObjective(SupervisedObjective):
     def compute_loss(self, model, batch):
         """Same batch schema as SupervisedObjective; logs add "task_loss" /
         "activity_loss" / "weight_loss" / "ortho_loss" as terms are active."""
-        task_loss, logs = super().compute_loss(model, batch)
-        # SupervisedObjective returns task_loss computed with its own reduction.
-        # For regression with mse_reduce="global", recompute the task loss so the
-        # coefficient and reduction exactly match the reference notebooks.
-        if self.task_type == "regression" and self.mse_reduce == "global":
-            from ..losses import masked_mse
-            out = model(batch["inputs"])
-            target = batch["targets"]
+        # Compute every term from one rollout. Besides avoiding redundant work,
+        # this is required for stochastic recurrent models: task and activity
+        # regularizers must see the same recurrent-noise realization.
+        out = model(batch["inputs"])
+        y = out.outputs
+        target = batch["targets"]
+        mask = batch.get("mask")
+
+        if getattr(model.config, "output_h0", False) and y.shape[1] == target.shape[1] + 1:
+            y = y[:, :-1]
+
+        if self.task_type == "classification":
+            task_loss = masked_cross_entropy(y, target, mask)
+            logs = {
+                "loss": task_loss.item(),
+                "acc": accuracy_classification(y, target, mask).item(),
+            }
+        else:
             if target.dim() == 2:
                 target = target.unsqueeze(-1)
-            task_loss = masked_mse(out.outputs, target, batch.get("mask"), reduction="global")
-            logs["task_loss"] = task_loss.item()
+            task_loss = masked_mse(y, target, mask, reduction=self.mse_reduce)
+            logs = {"loss": task_loss.item()}
 
         loss = task_loss
 
         if self.activity_weight > 0:
-            out = model(batch["inputs"])
-            act_pen = activity_l2(out.states, batch.get("mask"), reduction=self.activity_reduce)
+            act_pen = activity_l2(out.states, mask, reduction=self.activity_reduce)
             loss = loss + self.activity_weight * act_pen
             logs["activity_loss"] = act_pen.item()
 

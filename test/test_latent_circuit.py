@@ -277,6 +277,9 @@ class TestPerturbationAnalysis:
         assert pert.shape == (20, 20)
         # Should be rank-1
         assert np.linalg.matrix_rank(pert, tol=1e-6) <= 1
+        expected = np.zeros((4, 4))
+        expected[spec.i, spec.j] = spec.delta
+        np.testing.assert_allclose(Q @ pert @ Q.T, expected, atol=1e-6)
 
     def test_analyze_perturbation(self):
         from neuralrnn.analysis.perturbation import analyze_perturbation, PerturbationSpec

@@ -2,7 +2,7 @@
 
 Fully generic: only depends on model.forward / objective.compute_loss / dataset.sample_batch,
 and is agnostic to paradigms such as "task optimization vs. dynamics reconstruction vs. behavior
-fitting vs. variational". Paradigm differences are handled by the passed Objective (ARCHITECTURE §4).
+fitting". Paradigm differences are handled by the passed Objective (ARCHITECTURE §4).
 
 Minimal usage:
     trainer = Trainer(model, dataset, objective, args)

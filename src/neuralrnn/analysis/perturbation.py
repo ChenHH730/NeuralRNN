@@ -24,7 +24,7 @@ class PerturbationSpec:
     Attributes:
         i: Row index in w_rec (target node).
         j: Column index in w_rec (source node).
-        delta: Perturbation amount (negative = weaken connection).
+        delta: Signed amount added to the latent connection.
         label: Human-readable description.
     """
     i: int
@@ -52,7 +52,7 @@ class PerturbationResult:
 def latent_to_rnn_perturbation(spec: PerturbationSpec, Q: np.ndarray) -> np.ndarray:
     """Convert a latent circuit perturbation to an RNN connectivity perturbation.
 
-    delta_{ij} in w_rec maps to: delta * outer(Q[j], Q[i]) in W_rec
+    delta_{ij} in w_rec maps to: delta * outer(Q[i], Q[j]) in W_rec
 
     This is because w_rec = Q @ W_rec @ Q^T, so perturbing w_rec[i,j] by delta
     is equivalent to perturbing W_rec by delta * q_i^T @ q_j (rank-one).
@@ -67,7 +67,7 @@ def latent_to_rnn_perturbation(spec: PerturbationSpec, Q: np.ndarray) -> np.ndar
     # Q has shape (n, N), q_i = Q[i] has shape (N,)
     q_i = Q[spec.i]  # (N,)
     q_j = Q[spec.j]  # (N,)
-    return spec.delta * np.outer(q_j, q_i)
+    return spec.delta * np.outer(q_i, q_j)
 
 
 def apply_perturbation(model, perturbation: np.ndarray) -> None:
@@ -78,7 +78,7 @@ def apply_perturbation(model, perturbation: np.ndarray) -> None:
         perturbation: (N, N) perturbation to add to W_rec.
     """
     with torch.no_grad():
-        perturbation_t = torch.tensor(perturbation, dtype=model.h2h.weight.dtype)
+        perturbation_t = torch.tensor(perturbation, dtype=model.h2h.weight.dtype, device=model.h2h.weight.device)
         model.h2h.weight.add_(perturbation_t)
 
 
@@ -95,8 +95,7 @@ def compute_choice(model, inputs: torch.Tensor) -> np.ndarray:
     Returns:
         choices: (N,) array of choice values.
     """
-    model.eval()
-    with torch.no_grad():
+    with model.evaluation_context(), torch.no_grad():
         out = model(inputs)
         outputs = out.outputs  # (N, T, output_dim)
         # Choice at last time step
@@ -109,6 +108,7 @@ def analyze_perturbation(
     latent_model,
     task_dataset,
     perturbation: PerturbationSpec,
+    *, recurrent_noise: bool | None = None, noise_seed: int | None = None,
 ) -> PerturbationResult:
     """Analyze the behavioral effect of a latent circuit perturbation.
 
@@ -138,22 +138,24 @@ def analyze_perturbation(
     Q = latent_model.embedding_matrix.detach().cpu().numpy()
 
     # Compute baseline behavior
-    behavior_before = compute_psychometric(rnn_model, inputs, conditions)
+    def evaluate():
+        rng = None if noise_seed is None else torch.Generator(device=inputs.device).manual_seed(noise_seed)
+        return compute_psychometric(rnn_model, inputs, conditions,
+                                    recurrent_noise=recurrent_noise, noise_generator=rng)
+
+    behavior_before = evaluate()
 
     # Compute RNN perturbation
     rnn_pert = latent_to_rnn_perturbation(perturbation, Q)
 
     # Save original weights
-    original_weights = rnn_model.h2h.weight.data.clone()
-
-    # Apply perturbation
-    apply_perturbation(rnn_model, rnn_pert)
-
-    # Compute perturbed behavior
-    behavior_after = compute_psychometric(rnn_model, inputs, conditions)
-
-    # Restore original weights
-    rnn_model.h2h.weight.data.copy_(original_weights)
+    original_weights = rnn_model.h2h.weight.detach().clone()
+    try:
+        apply_perturbation(rnn_model, rnn_pert)
+        behavior_after = evaluate()
+    finally:
+        with torch.no_grad():
+            rnn_model.h2h.weight.copy_(original_weights)
 
     return PerturbationResult(
         spec=perturbation,

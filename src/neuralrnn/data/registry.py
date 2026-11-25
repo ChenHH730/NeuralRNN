@@ -65,6 +65,12 @@ DATASET_REGISTRY: dict[str, DatasetSpec] = {
         loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
         extra={"task_name": "mante"},  # alias
     ),
+    # Langdon & Engel (2025) task convention; used by the Fig. 4 example
+    "mante_lc": DatasetSpec(
+        kind="cognitive_task",
+        loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",
+        extra={"task_name": "mante_lc"},
+    ),
     "dms_continuous": DatasetSpec(
         kind="cognitive_task",
         loader="neuralrnn.data.cognitive_task_dataset:CognitiveTaskDataset.from_task",

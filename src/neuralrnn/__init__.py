@@ -13,7 +13,7 @@ handled by Objective) and analysis modules.
 
 from __future__ import annotations
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 # Core base classes / output container
 from .configuration_utils import (
@@ -43,7 +43,7 @@ from .data import (
 from .train import (
     Trainer, TrainingArguments,
     Objective, SupervisedObjective, RegularizedSupervisedObjective,
-    TeacherForcingObjective, BehavioralObjective, VariationalObjective,
+    TeacherForcingObjective, BehavioralObjective,
     ReconstructionObjective, ConstrainedSupervisedObjective, TDObjective,
     build_objective, register_objective, OBJECTIVE_REGISTRY, AutoObjective,
     masked_mse, masked_cross_entropy, masked_nll, loss_mse,
@@ -79,7 +79,7 @@ __all__ = [
     "DATASET_REGISTRY", "DatasetSpec", "load_dataset",
     "Trainer", "TrainingArguments",
     "Objective", "SupervisedObjective", "RegularizedSupervisedObjective",
-    "TeacherForcingObjective", "BehavioralObjective", "VariationalObjective",
+    "TeacherForcingObjective", "BehavioralObjective",
     "ReconstructionObjective", "ConstrainedSupervisedObjective", "TDObjective",
     "build_objective", "register_objective", "OBJECTIVE_REGISTRY", "AutoObjective",
     "masked_mse", "masked_cross_entropy", "masked_nll", "loss_mse",

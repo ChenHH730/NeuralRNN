@@ -134,6 +134,45 @@ def test_se_rnn_regularizer_finite():
     assert reg.item() >= 0.0
 
 
+@pytest.mark.parametrize("comms_factor", [0.0, 0.5, 1.0, 2.0])
+def test_se_rnn_loss_and_gradient_against_keras_orientation(comms_factor):
+    """Independent SciPy value/finite differences catch transpose and detach bugs."""
+    from scipy.linalg import expm
+
+    cfg = SERNNConfig(input_dim=2, latent_dim=4, output_dim=2,
+                      grid_shape=(2, 2), se1_weight=0.3,
+                      comms_factor=comms_factor, orthogonal_init=False)
+    model = AutoModel.from_config(cfg).double()
+    # Directed, asymmetric strengths are essential: symmetric fixtures can hide
+    # a row-versus-column normalization error. Nonzero weights avoid |w| cusps.
+    weights = np.array([[.2, -.7, .1, .4], [.3, .1, -.9, .2],
+                        [-.8, .2, .3, .6], [.1, -.4, .5, .2]])
+    with torch.no_grad():
+        model.h2h.weight.copy_(torch.from_numpy(weights))
+    distances = model.distance_matrix.numpy()
+
+    def source_loss(pytorch_weights):
+        kernel = np.abs(pytorch_weights.T)  # Original Keras (source, target).
+        if comms_factor > 0:
+            normalization = np.diag(kernel.sum(axis=1) ** -0.5)
+            communication = expm(normalization @ kernel @ normalization)
+            np.fill_diagonal(communication, 0.0)
+            kernel = kernel * communication ** comms_factor
+        return cfg.se1_weight * np.sum(kernel * distances)
+
+    loss = model.constraint_loss()
+    gradient = torch.autograd.grad(loss, model.h2h.weight)[0].numpy()
+    finite_difference = np.empty_like(weights)
+    epsilon = 1e-6
+    for index in np.ndindex(weights.shape):
+        plus, minus = weights.copy(), weights.copy()
+        plus[index] += epsilon
+        minus[index] -= epsilon
+        finite_difference[index] = (source_loss(plus) - source_loss(minus)) / (2 * epsilon)
+    np.testing.assert_allclose(loss.detach().numpy(), source_loss(weights), rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(gradient, finite_difference, rtol=2e-6, atol=2e-8)
+
+
 def test_constrained_objective_adds_regularizer():
     cfg = SERNNConfig(
         input_dim=2,

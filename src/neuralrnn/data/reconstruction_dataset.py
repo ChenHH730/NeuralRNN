@@ -118,6 +118,8 @@ class ReconstructionDataset(BaseDataset):
         device: str = "cpu",
         activity_fn: str | Callable | None = None,
         record_targets: bool = True,
+        recurrent_noise: bool | None = None,
+        noise_generator=None,
     ) -> "ReconstructionDataset":
         """Create dataset by running a trained teacher RNN on task data.
 
@@ -133,14 +135,15 @@ class ReconstructionDataset(BaseDataset):
                 None (default) — hidden states (``out.states``);
                 "firing_rates" — ``rnn_model.get_firing_rates(out.states)``;
                 callable — ``activity_fn(rnn_model, out) -> Tensor``.
+            recurrent_noise: Explicit process-noise override, independent of eval mode.
+            noise_generator: Device-matched torch.Generator for recurrent noise only.
             record_targets: If True, store the teacher behavioral output
                 (``out.outputs``) as reconstruction targets.
 
         Returns:
             ReconstructionDataset instance.
         """
-        rnn_model.eval()
-        with torch.no_grad():
+        with rnn_model.evaluation_context(noise=recurrent_noise, generator=noise_generator), torch.no_grad():
             if hasattr(task_dataset, "get_all_trials"):
                 data = task_dataset.get_all_trials()
                 inputs = data["inputs"].to(device)

@@ -122,8 +122,10 @@ class ActorCriticConfig(NeuralRNNConfig):
         input_dim = kwargs.pop("input_dim", core_config.get("input_dim", 0))
         latent_dim = kwargs.pop("latent_dim", core_config.get("latent_dim", 0))
         output_dim = kwargs.pop("output_dim", action_dim if action_dim > 0 else 1)
+        kwargs.setdefault("evaluate_noise", core_config.get("evaluate_noise", False))
         super().__init__(input_dim=input_dim, latent_dim=latent_dim,
                          output_dim=output_dim, **kwargs)
+        core_config["evaluate_noise"] = self.evaluate_noise
         self.core_config = core_config
         self.action_dim = action_dim
         self.action_type = action_type

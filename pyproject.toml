@@ -4,11 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "neuralrnn"
-version = "0.4.0"
+version = "0.5.0"
 description = "A unified framework for implementing RNN methods in cognitive neuroscience"
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = "GPL-3.0-only"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md", "licenses/*.txt"]
 authors = [{ name = "Honghua Chen", email = "honghuachen69@gmail.com" }]
 keywords = ["RNN", "computational-neuroscience", "dynamical-systems",
             "dynamics-reconstruction", "interpretability", "PLRNN"]
@@ -16,10 +17,10 @@ keywords = ["RNN", "computational-neuroscience", "dynamical-systems",
 dependencies = [
     "torch>=2.0",
     "numpy>=1.23",
-    "scipy>=1.10",        
-    "safetensors>=0.4",   
+    "scipy>=1.10",
+    "safetensors>=0.4",
     "neurogym>=0.0.1",
-    "gym>=0.21",
+    "gymnasium>=0.29",
     "matplotlib>=3.6",
     "jupyter",
     "ipykernel",
@@ -27,20 +28,39 @@ dependencies = [
 ]
 
 classifiers = [
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
 
-
 [project.urls]
 Homepage = "https://github.com/ChenHH730/NeuralRNN"
 Documentation = "https://neuralrnn.readthedocs.io/"
 
+[tool.hatch.build]
+exclude = [
+    "**/docs/**",
+    "**/notebook/**",
+    "**/notebooks/**",
+    "*.ipynb",
+    "/src/neuralrnn/rl/README.md",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/neuralrnn"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/test",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/LICENSE",
+    "/THIRD_PARTY_NOTICES.md",
+    "/licenses",
+    "/pyproject.toml",
+]
 
 [tool.ruff]
 line-length = 100
@@ -48,6 +68,3 @@ target-version = "py39"
 
 [tool.pytest.ini_options]
 testpaths = ["test"]
-
-[tool.setuptools.exclude-package-data]
-"neuralrnn" = ["docs/*", "notebook/*", "*.ipynb"]

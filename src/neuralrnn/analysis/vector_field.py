@@ -13,6 +13,7 @@ import numpy as np
 import torch
 
 from ..modeling_utils import NeuralDynamicsModel
+from ._context import deterministic_analysis
 
 
 @dataclass
@@ -25,6 +26,7 @@ class VectorField:
 
 
 @torch.no_grad()
+@deterministic_analysis
 def compute_vector_field(model: NeuralDynamicsModel, basis: np.ndarray, mean: np.ndarray,
                          *, task_input: torch.Tensor | None = None,
                          extent=(-3.0, 3.0), n_grid: int = 20) -> VectorField:
@@ -43,12 +45,15 @@ def compute_vector_field(model: NeuralDynamicsModel, basis: np.ndarray, mean: np
     aa, bb = np.meshgrid(xs, ys)
     coords = np.stack([aa.ravel(), bb.ravel()], axis=1)          # (G,2)
 
-    B = torch.as_tensor(basis, dtype=torch.float32, device=device)   # (2,M)
-    mu = torch.as_tensor(mean, dtype=torch.float32, device=device)   # (M,)
-    C = torch.as_tensor(coords, dtype=torch.float32, device=device)  # (G,2)
+    B = torch.as_tensor(basis, dtype=next(model.parameters()).dtype, device=device)   # (2,M)
+    mu = torch.as_tensor(mean, dtype=next(model.parameters()).dtype, device=device)   # (M,)
+    C = torch.as_tensor(coords, dtype=next(model.parameters()).dtype, device=device)  # (G,2)
+    model.validate_state(mu)
+    if B.shape != (2, model.state_dim):
+        raise ValueError("basis must have shape (2,state_dim)")
     Z = mu + C @ B                                                 # (G,M)
 
-    xin = None if task_input is None else task_input.to(device).unsqueeze(0).expand(Z.shape[0], -1)
+    xin = None if task_input is None else task_input.to(device=device, dtype=mu.dtype).unsqueeze(0).expand(Z.shape[0], -1)
     F = model.recurrence(xin, Z)
     dz = F - Z                                                     # (G,M)
     vel_pc = (dz @ B.T).cpu().numpy()                              # (G,2) project back to the plane

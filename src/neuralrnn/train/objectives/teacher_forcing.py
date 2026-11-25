@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn.functional as F
+import math
 
 from .base import Objective
 from .registry import register_objective
@@ -50,30 +51,40 @@ class TeacherForcingObjective(Objective):
     """
 
     def __init__(self, alpha: float = 0.1, forcing_interval: int | None = None,
-                 tf_noise: float = 0.0):
+                 tf_noise: float = 0.0, observation_to_state=None):
         """
         Args:
             alpha: Teacher forcing blending strength in [0, 1].
             forcing_interval: If None (default), apply GTF at every step.
                 If an integer tau > 0, apply forcing only when t % tau == 0,
                 matching sparse teacher forcing used by ALRNN-DSR / dendPLRNN.
+            observation_to_state: Optional callable (model, observation, predicted_state)
+                returning the full lifted state. Required for non-identity observations.
             tf_noise: Std of Gaussian noise added to the teacher signal
                 (dendPLRNN BPTT-TF reference uses 0.05); 0 disables.
         """
-        self.alpha = float(alpha)
-        if forcing_interval is not None and forcing_interval <= 0:
+        self.set_forcing(alpha)
+        if forcing_interval is not None and (isinstance(forcing_interval, bool) or
+                not isinstance(forcing_interval, int) or forcing_interval <= 0):
             raise ValueError("forcing_interval must be None or a positive integer")
         self.forcing_interval = forcing_interval
         self.tf_noise = float(tf_noise)
+        if not math.isfinite(self.tf_noise) or self.tf_noise < 0:
+            raise ValueError("tf_noise must be finite and nonnegative")
+        self.observation_to_state = observation_to_state
 
     def set_forcing(self, alpha: float) -> None:
         """Set the GTF blending strength (called by Trainer for annealing)."""
         self.alpha = float(alpha)
+        if not math.isfinite(self.alpha) or not 0 <= self.alpha <= 1:
+            raise ValueError("alpha must be finite and in [0,1]")
 
     def _force(self, z_pred: torch.Tensor, x_obs_t: torch.Tensor) -> torch.Tensor:
         """Inject observation into predicted latent state. Blend whole vector when latent_dim == obs_dim; otherwise only blend the first obs_dim dimensions."""
         M = z_pred.shape[-1]
         N = x_obs_t.shape[-1]
+        if N > M:
+            raise ValueError("Observation width exceeds state width")
         if M == N:
             return generalized_teacher_forcing(z_pred, x_obs_t, self.alpha)
         forced = z_pred.clone()
@@ -87,6 +98,17 @@ class TeacherForcingObjective(Objective):
         X = batch["activity"]               # (B,T,N) observations (= latent trajectory, DSR identity)
         S = batch.get("inputs")             # (B,T,K) external inputs or None (autonomous)
         B, T, N = X.shape
+        if T < 2:
+            raise ValueError("Teacher forcing requires at least two time steps")
+        if S is not None and S.shape[:2] != X.shape[:2]:
+            raise ValueError("inputs and activity must have matching batch/time dimensions")
+        if self.observation_to_state is None:
+            if not getattr(model, "identity_observation", False):
+                raise ValueError("Teacher forcing assumes identity observation of the first N state "
+                                 "coordinates. Supply observation_to_state(model, observation, "
+                                 "predicted_state) for a non-identity observation model.")
+            if N > model.config.latent_dim or N != model.config.output_dim:
+                raise ValueError("Observed width must equal output_dim and not exceed latent_dim")
         # Noise is added to the teacher signal only; targets stay clean
         # (dendPLRNN BPTT-TF reference: inp += noise, target untouched).
         X_tf = X + torch.randn_like(X) * self.tf_noise if self.tf_noise > 0 else X
@@ -97,7 +119,11 @@ class TeacherForcingObjective(Objective):
         # When latent dim M == observation dim N, initialize previous state with the first observation;
         # when M != N, use the model's observation->latent lift (default: zero-hidden init with the
         # first N dims hard-set; ALRNN/dendPLRNN with learn_z0 use a learned B matrix).
-        if M == N:
+        if self.observation_to_state is not None:
+            z = model.init_state(B, device)
+            z = self.observation_to_state(model, X_tf[:, 0], z)
+            model.validate_state(z)
+        elif M == N:
             z = X_tf[:, 0].to(device)
         else:
             z = model.init_state_from_obs(X_tf[:, 0].to(device))
@@ -108,7 +134,14 @@ class TeacherForcingObjective(Objective):
                 self.forcing_interval is None or t % self.forcing_interval == 0
             )
             if apply_force:
-                z_forced = self._force(z, X_tf[:, t])
+                if self.observation_to_state is None:
+                    z_forced = self._force(z, X_tf[:, t])
+                else:
+                    lifted = self.observation_to_state(model, X_tf[:, t], z)
+                    model.validate_state(lifted)
+                    if lifted.shape != z.shape:
+                        raise ValueError("observation_to_state must preserve the complete state shape")
+                    z_forced = generalized_teacher_forcing(z, lifted, self.alpha)
             else:
                 z_forced = z
             s_t = S[:, t] if S is not None else None
@@ -119,7 +152,7 @@ class TeacherForcingObjective(Objective):
         Yhat = model.readout(Z)              # (B,T,output_dim); identity readout observes first N units
         Y = X[:, 1:]                         # one-step-ahead targets
         Yhat = Yhat[:, :-1]                  # predictions for steps 1..T-1
-        if Yhat.shape[-1] != Y.shape[-1]:
-            Yhat = Yhat[..., :Y.shape[-1]]
+        if Yhat.shape != Y.shape:
+            raise ValueError("Readout and observation shapes must match; outputs are not truncated")
         loss = F.mse_loss(Yhat, Y)
         return loss, {"loss": loss.item(), "alpha": self.alpha}

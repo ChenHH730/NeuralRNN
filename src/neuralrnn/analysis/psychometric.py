@@ -53,6 +53,7 @@ def compute_psychometric(
     model,
     inputs: torch.Tensor,
     conditions: list,
+    *, recurrent_noise: bool | None = None, noise_generator=None,
 ) -> dict[str, Any]:
     """Compute psychometric curves from model behavior.
 
@@ -63,14 +64,15 @@ def compute_psychometric(
         model: Trained RNN or latent circuit model.
         inputs: (N, T, input_dim) task inputs.
         conditions: list of dicts with trial conditions.
+        recurrent_noise: True/False overrides process noise; None inherits policy.
+        noise_generator: Device-matched torch.Generator; unrelated RNGs are unchanged.
 
     Returns:
         dict with keys:
             "curves": dict mapping (context, variable) -> PsychometricCurve
             "choices": (N,) raw choice values
     """
-    model.eval()
-    with torch.no_grad():
+    with model.evaluation_context(noise=recurrent_noise, generator=noise_generator), torch.no_grad():
         out = model(inputs)
         outputs = out.outputs  # (N, T, output_dim)
         # Choice: ReLU(output[t=-1, 0] - output[t=-1, 1])

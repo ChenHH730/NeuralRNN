@@ -175,8 +175,18 @@ class ActorCriticModel(NeuralDynamicsModel):
 
     # ---------------- heads ----------------
     def _features(self, z: torch.Tensor) -> torch.Tensor:
-        """Head input features: E-unit slice for E-I cores, else the full state."""
-        return z[..., :self.core.e_size] if self.e_only else z
+        """Optional core observation map, followed by the configured unit slice.
+
+        E-I cores can explicitly request rate features; their default map is
+        identity. Other built-in cores retain their existing state features.
+        """
+        feature_map = getattr(self.core, "readout_features", None)
+        if feature_map is not None:
+            z = feature_map(z)
+        if self.e_only:
+            indices = getattr(self.core, "excitatory_indices", None)
+            return z.index_select(-1, indices) if indices is not None else z[..., :self.core.e_size]
+        return z[..., :self.core.config.latent_dim]
 
     def _logits(self, z: torch.Tensor) -> torch.Tensor:
         return self.actor(self._features(z)) * self.config.policy_logit_scale
@@ -217,7 +227,7 @@ class ActorCriticModel(NeuralDynamicsModel):
                     z0: torch.Tensor | None = None) -> torch.Tensor:
         """CleanRL done-masking that resets to the core's initial state (h0)
         instead of zeros. Numerically identical to plain zero-masking whenever
-        h0 == 0 (the default for all cores), but lets a learnable h0
+        h0 == 0, and also lets a nonzero or learnable h0
         (``trainable_h0=True``) receive gradients through episode boundaries,
         matching Flux's ``state0`` semantics."""
         if done is None:

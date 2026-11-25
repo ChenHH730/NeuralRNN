@@ -61,7 +61,7 @@ def test_invalid_values():
 
 @pytest.mark.parametrize("model_type,exp_alpha,exp_dt", [
     ("ctrnn", 1.0, 100.0),
-    ("ei_rnn", 1.0, 100.0),
+    ("ei_rnn", 0.2, 20.0),
     ("constrained_rnn", 1.0, 100.0),
     ("latent_circuit", 0.2, 40.0),
     ("lowrank_rnn", 0.2, 20.0),

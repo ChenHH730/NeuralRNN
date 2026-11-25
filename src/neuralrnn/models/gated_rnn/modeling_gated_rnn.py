@@ -19,7 +19,7 @@ unchanged. Access it generically via the :attr:`GatedRNNModel.rnn` property.
 LSTM state convention (follows the stp_rnn packed-state precedent):
 ``init_state`` returns the packed state ``[h, c]`` of width ``2*M``;
 ``recurrence`` accepts either the packed ``(B, 2M)`` state or a plain
-``(B, M)`` hidden state (cell state falls back to zeros, for analysis tools),
+``(B, M)`` hidden state (legacy cell-state fallback is disabled in strict analysis),
 and returns the packed ``(B, 2M)`` state. ``forward`` uses ``nn.LSTM``
 directly and reports ``states`` as the hidden sequence ``(B, T, M)``.
 
@@ -29,6 +29,8 @@ Reference:
     Nature. https://doi.org/10.1038/s41586-025-09142-4
 """
 from __future__ import annotations
+
+import warnings
 
 import torch
 import torch.nn as nn
@@ -61,8 +63,20 @@ class GatedRNNModel(NeuralDynamicsModel):
 
     _RNN_CLASSES = {"GRU": nn.GRU, "LSTM": nn.LSTM}
 
+    supports_recurrent_noise = False
+
+    def _warn_unsupported_noise(self):
+        if self.config.sigma_rec > 0 and not self._noise_warning_emitted:
+            warnings.warn(
+                f"{type(self).__name__}: recurrent noise is not supported for GRU/LSTM; "
+                "sigma_rec is ignored. The model runs without recurrent noise.",
+                UserWarning, stacklevel=3)
+            self._noise_warning_emitted = True
+
     def __init__(self, config: GatedRNNConfig) -> None:
         super().__init__(config)
+        self._noise_warning_emitted = False
+        self._warn_unsupported_noise()
         M = config.latent_dim
 
         # Recurrent layer — takes raw input directly (no input projection).
@@ -128,6 +142,11 @@ class GatedRNNModel(NeuralDynamicsModel):
         Returns:
             z_t: (B, M) for GRU; packed [h, c] (B, 2M) for LSTM
         """
+        self._warn_unsupported_noise()
+        if self._strict_state:
+            self.validate_state(z_prev)
+        if x_t is None:
+            x_t = z_prev.new_zeros(z_prev.shape[0], self.config.input_dim)
         if self.config.rnn_type == "GRU":
             return self._gru_step(x_t, z_prev)
         return self._lstm_step(x_t, z_prev)
@@ -231,6 +250,7 @@ class GatedRNNModel(NeuralDynamicsModel):
         Returns:
             DynamicsModelOutput with outputs and states
         """
+        self._warn_unsupported_noise()
         if inputs is None:
             raise ValueError(f"{type(self).__name__} requires an input sequence")
         B, T, _ = inputs.shape

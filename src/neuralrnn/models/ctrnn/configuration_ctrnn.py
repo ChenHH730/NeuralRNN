@@ -1,9 +1,12 @@
 """CTRNN family configurations (continuous-time RNN, including vanilla / EI variants).
 
-Reference implementation: ported from nn-brain's RNN+DynamicalSystemAnalysis.ipynb / EI_RNN.ipynb.
+CTRNN reference: nn-brain's RNN+DynamicalSystemAnalysis.ipynb.
+E-I reference: Song 2016 pycog, with configurable nn-brain tutorial alternatives.
 Serves as the Contract-A copy template for "Paradigm A (task-optimized RNN)".
 """
 from __future__ import annotations
+
+import warnings
 
 from ...configuration_utils import (
     NeuralRNNConfig, resolve_euler_alpha, validate_nonlinearity_mode,
@@ -36,13 +39,9 @@ class CTRNNConfig(NeuralRNNConfig):
             named_parameters at all, stronger than freezing); True -> h0 is an
             nn.Parameter, which can still be frozen via freeze_h0=True.
         sigma_rec:  Standard deviation of recurrent noise (0 disables)
-        noise_alpha_scaling: Legacy flag; noise std = sqrt(2 * alpha * sigma^2).
-        noise_scaling: Explicit noise scaling mode, overrides noise_alpha_scaling when set:
-            None               -> legacy behavior (noise_alpha_scaling flag);
-            "sqrt_2alpha"      -> std = sqrt(2 * alpha * sigma^2) (same as legacy flag);
-            "sqrt_2_over_alpha"-> std = sqrt(2 * sigma^2 / alpha) (recipe of
-                                  Battista-2026: prefactor sqrt(2*sigma2rec/alpha)
-                                  with sigma2rec the variance).
+        noise_alpha_scaling: Multiply injection std by sqrt(2*alpha) when True.
+        noise_position: "pre" (default), "post", or "state".
+        evaluate_noise: Enable configured noise in eval mode (default False).
         nonlinearity_mode: Where the nonlinearity f sits in the Euler step
             (pre = W@state + B@x + b, noise added on pre):
             "pre_activation" (default): z' = (1-α)z + α·f(pre);
@@ -71,17 +70,27 @@ class CTRNNConfig(NeuralRNNConfig):
         trainable_h0: bool = False,
         sigma_rec: float = 0.0,
         noise_alpha_scaling: bool = False,
-        noise_scaling: str | None = None,
         nonlinearity_mode: str = "pre_activation",
         **kwargs,
     ) -> None:
         alpha, dt = resolve_euler_alpha(dt, tau, alpha, default_dt=100.0, model_type=self.model_type)
         validate_nonlinearity_mode(nonlinearity_mode, model_type=self.model_type)
-        if noise_scaling not in (None, "sqrt_2alpha", "sqrt_2_over_alpha"):
-            raise ValueError(
-                f"noise_scaling must be None, 'sqrt_2alpha' or 'sqrt_2_over_alpha', got {noise_scaling!r}")
+        # Input-only migration keeps existing notebooks/checkpoints usable.
+        # New configs store only sigma_rec and the original boolean flag.
+        legacy_scaling = kwargs.pop("noise_scaling", None)
+        if legacy_scaling not in (None, "sqrt_2alpha", "sqrt_2_over_alpha"):
+            raise ValueError(f"Unknown legacy noise_scaling={legacy_scaling!r}")
+        if legacy_scaling is not None:
+            if legacy_scaling == "sqrt_2_over_alpha":
+                sigma_rec = sigma_rec / alpha
+            noise_alpha_scaling = True
+            warnings.warn(
+                "noise_scaling is obsolete; converted to equivalent sigma_rec and "
+                "noise_alpha_scaling=True. The injected noise amplitude is preserved.",
+                FutureWarning, stacklevel=2)
         super().__init__(input_dim=input_dim, latent_dim=latent_dim,
-                         output_dim=output_dim, dt=dt, activation=activation, **kwargs)
+                         output_dim=output_dim, dt=dt, activation=activation,
+                         sigma_rec=sigma_rec, noise_alpha_scaling=noise_alpha_scaling, **kwargs)
         self.alpha = alpha
         self.tau = tau
         self.dale = dale or (dale_signs is not None)
@@ -96,39 +105,98 @@ class CTRNNConfig(NeuralRNNConfig):
         self.trainable_h0 = trainable_h0
         self.sigma_rec = sigma_rec
         self.noise_alpha_scaling = noise_alpha_scaling
-        self.noise_scaling = noise_scaling
         self.nonlinearity_mode = nonlinearity_mode
 
 
 class EIRNNConfig(CTRNNConfig):
-    """Excitatory-Inhibitory RNN (Dale's principle enforced by default).
+    """Current-state E-I network with Dale sign constraints.
 
-    Extended from CTRNNConfig with EI-specific parameters:
-        readout_e_only: If True, readout only from excitatory units (first e_size units).
-                        This matches the original E-I RNN paper (Song et al., 2016) where
-                        long-range projections are exclusively excitatory.
-        init_method:    Weight initialization method ('kaiming' or 'gamma').
-                        'gamma' samples |W_rec| ~ Gamma(4, 4) (recipe of Battista-2026).
-        spectral_radius: If set, rescale the effective recurrent matrix |W| @ diag(sign)
-                        to this spectral radius after init (e.g. 1.5 in Battista-2026).
-        no_self_connections: If True, zero the W_rec diagonal after init.
+    ``nonlinearity_mode="rate"`` (default) uses activated currents in both
+    recurrence and readout. Other modes store activity and read it directly.
+    There is no separate observation-mode switch.
 
-    Reference:
-        Song, H.F., Yang, G.R. and Wang, X.J., 2016.
-        Training excitatory-inhibitory recurrent neural networks
-        for cognitive tasks: a simple and flexible framework.
-        PLoS computational biology, 12(2).
+    Args:
+        positive_input_weights: Constrain input weights to non-negative values.
+        positive_output_weights: Constrain output magnitudes and apply the
+            presynaptic E/I signs. With E-only readout, weights are non-negative.
+        ei_positive_func: "rectify" (pycog default) or "abs"; used by all enabled
+            sign constraints. Disabling ``dale`` removes recurrent column signs.
+        readout_e_only: Select excitatory units (including custom dale_signs).
+        no_self_connections: Enforce a zero recurrent diagonal on every call.
+        in_mask: Binary (input_dim, latent_dim) connectivity, or None.
+        rec_mask: Binary (latent_dim, latent_dim), target-by-source, or None.
+        out_mask: Binary (latent_dim, output_dim), or None. E-only selection
+            is applied after this full-population mask.
+        init_method: "kaiming" (nn-brain recipe, default), "pycog" (Gamma(2,
+            rate=20) recurrent magnitudes, mean-balanced default connectivity;
+            uniform input/output magnitudes), or "gamma" (Battista Gamma(4,
+            rate=4) recipe).
+        spectral_radius: Initial effective recurrent radius, or None (default)
+            to skip rescaling.
+        h0_init: Initial current (default 0.0); trainable_h0 defaults to False.
+        input_bias: Include a trainable input projection bias (default True).
+        recurrent_bias: Include a trainable recurrent bias (default True).
+        output_bias: Include a trainable output bias (default True).
+
+    Defaults follow the nn-brain EI_RNN tutorial: dt=tau/5, rate dynamics, ReLU
+    activation, E-only readout, unconstrained input/output weights with biases,
+    no autapses, kaiming initialization without radius rescaling, and fixed
+    h0=0. The pycog recipe remains available through explicit configuration.
+    Noise stays opt-in (sigma_rec=0); its default position/scaling reproduce
+    sqrt(2*alpha)*sigma_rec state increments. Task inputs and training objectives
+    are configured separately. Masks describe plastic connectivity, not pycog's
+    optional fixed non-trainable connections.
     """
     model_type = "ei_rnn"
 
     def __init__(self, readout_e_only: bool = True, init_method: str = "kaiming",
-                 spectral_radius: float | None = None, no_self_connections: bool = False,
-                 **kwargs):
+                 spectral_radius: float | None = None, no_self_connections: bool = True,
+                 positive_input_weights: bool = False, positive_output_weights: bool = False,
+                 ei_positive_func: str = "rectify", in_mask=None, rec_mask=None,
+                 out_mask=None, h0_init: float = 0.0, input_bias: bool = True,
+                 recurrent_bias: bool = True, output_bias: bool = True, **kwargs):
+        if "readout_mode" in kwargs:
+            raise TypeError("readout_mode was removed; E-I rate dynamics automatically read firing rates")
         kwargs.setdefault("dale", True)
-        if init_method not in ("kaiming", "gamma"):
-            raise ValueError(f"init_method must be 'kaiming' or 'gamma', got {init_method!r}")
+        kwargs.setdefault("nonlinearity_mode", "rate")
+        kwargs.setdefault("trainable_h0", False)
+        kwargs.setdefault("noise_position", "state")
+        kwargs.setdefault("noise_alpha_scaling", True)
+        if kwargs.get("dt") is None and kwargs.get("alpha") is None:
+            kwargs["dt"] = kwargs.get("tau", 100.0) / 5
+        if ei_positive_func not in ("rectify", "abs"):
+            raise ValueError("ei_positive_func must be 'rectify' or 'abs'")
+        if init_method not in ("pycog", "kaiming", "gamma"):
+            raise ValueError("init_method must be 'pycog', 'kaiming' or 'gamma'")
+        for name, value in dict(readout_e_only=readout_e_only,
+                no_self_connections=no_self_connections,
+                positive_input_weights=positive_input_weights,
+                positive_output_weights=positive_output_weights,
+                input_bias=input_bias, recurrent_bias=recurrent_bias,
+                output_bias=output_bias).items():
+            if not isinstance(value, bool):
+                raise ValueError(f"{name} must be bool")
+        import math
+        if spectral_radius is not None and (not math.isfinite(spectral_radius) or spectral_radius <= 0):
+            raise ValueError("spectral_radius must be finite and positive, or None")
+        if not math.isfinite(h0_init):
+            raise ValueError("h0_init must be finite")
         super().__init__(**kwargs)
+        if not 0 <= self.ei_ratio <= 1:
+            raise ValueError("ei_ratio must be between 0 and 1")
         self.readout_e_only = readout_e_only
         self.init_method = init_method
         self.spectral_radius = spectral_radius
         self.no_self_connections = no_self_connections
+        self.positive_input_weights = positive_input_weights
+        self.positive_output_weights = positive_output_weights
+        self.ei_positive_func = ei_positive_func
+        self.h0_init = float(h0_init)
+        self.input_bias = input_bias
+        self.recurrent_bias = recurrent_bias
+        self.output_bias = output_bias
+        # Normalize array/tensor masks once so AutoConfig serialization is JSON-safe.
+        for name, value in dict(in_mask=in_mask, rec_mask=rec_mask, out_mask=out_mask).items():
+            if hasattr(value, "tolist"):
+                value = value.tolist()
+            setattr(self, name, value)

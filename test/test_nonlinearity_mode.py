@@ -1,9 +1,9 @@
 """Tests for the unified nonlinearity placement (`nonlinearity_mode`).
 
 Three modes (pre = W@state + B@x + b, noise on pre):
-    "pre_activation": z' = (1-α)z + α·f(pre)            (default, standard Euler)
-    "post_blend":     z' = f((1-α)z + α·pre)            (nn-brain / Masse-style)
-    "rate":           r = f(z); z' = (1-α)z + α·(W@r + B@x + b)
+    "pre_activation": z' = (1-伪)z + 伪路f(pre)            (default, standard Euler)
+    "post_blend":     z' = f((1-伪)z + 伪路pre)            (nn-brain / Masse-style)
+    "rate":           r = f(z); z' = (1-伪)z + 伪路(W@r + B@x + b)
 
 See ``neuralrnn.configuration_utils.SUPPORTED_NONLINEARITY_MODES``.
 """
@@ -40,7 +40,7 @@ def test_validate_invalid_raises():
 # ---------------- per-family defaults ----------------
 
 @pytest.mark.parametrize("model_type", [
-    "ctrnn", "ei_rnn", "constrained_rnn", "se_rnn", "sparse_rnn", "modular_rnn",
+    "ctrnn", "constrained_rnn", "se_rnn", "sparse_rnn", "modular_rnn",
     "latent_circuit",
 ])
 def test_default_pre_activation(model_type):

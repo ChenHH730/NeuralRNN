@@ -10,11 +10,20 @@ Porters note: move all construction hyperparameters of the paper model into the 
 from __future__ import annotations
 
 import json
+import math
 import os
 import warnings
 from typing import Any
 
 CONFIG_FILE_NAME = "config.json"
+SUPPORTED_NOISE_POSITIONS = ("pre", "post", "state")
+
+
+def validate_noise_position(position: str, *, model_type: str = "") -> str:
+    """Validate drive, post-update/pre-final-activation, or final-state noise."""
+    if position not in SUPPORTED_NOISE_POSITIONS:
+        raise ValueError(f"{model_type}: noise_position must be one of {SUPPORTED_NOISE_POSITIONS}")
+    return position
 
 # Nonlinearity placement in the Euler step of continuous-time (leaky) RNNs.
 # With pre = W@state + B@x + b (noise added on pre):
@@ -123,6 +132,10 @@ class NeuralRNNConfig:
         activation : nonlinearity name. Supported names are defined in
             ``neuralrnn.activations.SUPPORTED_ACTIVATIONS`` (relu, tanh, sigmoid,
             softplus, leaky_relu/leakyrelu, elu, selu, gelu, silu/swish).
+        sigma_rec  : recurrent Gaussian draw std; 0 disables noise
+        evaluate_noise : also add recurrent noise in eval mode (default False)
+        noise_alpha_scaling : multiply draw std by sqrt(2*alpha) (default False)
+        noise_position : "pre", "post" or "state" (family defaults may differ)
     Subclasses only need to add their own fields after super().__init__(...).
     """
 
@@ -139,6 +152,10 @@ class NeuralRNNConfig:
         freeze_recurrent: bool = False,
         freeze_output: bool = False,
         freeze_h0: bool = False,
+        sigma_rec: float = 0.0,
+        noise_alpha_scaling: bool = False,
+        noise_position: str = "pre",
+        evaluate_noise: bool = False,
         **kwargs: Any,
     ) -> None:
         self.input_dim = input_dim
@@ -150,6 +167,17 @@ class NeuralRNNConfig:
         self.freeze_recurrent = freeze_recurrent
         self.freeze_output = freeze_output
         self.freeze_h0 = freeze_h0
+        if not math.isfinite(sigma_rec) or sigma_rec < 0:
+            raise ValueError("sigma_rec must be finite and nonnegative")
+        if not isinstance(noise_alpha_scaling, bool) or not isinstance(evaluate_noise, bool):
+            raise ValueError("noise_alpha_scaling and evaluate_noise must be bool")
+        self.sigma_rec = float(sigma_rec)
+        self.noise_alpha_scaling = noise_alpha_scaling
+        self.noise_position = validate_noise_position(noise_position, model_type=self.model_type)
+        self.evaluate_noise = evaluate_noise
+        # Obsolete CTRNN input is consumed there; never silently retain it elsewhere.
+        if kwargs.pop("noise_scaling", None) is not None:
+            raise ValueError("Use noise_alpha_scaling; noise_scaling is only accepted for legacy CTRNN configs")
         # Forward unknown fields for forward compatibility (extra fields in old checkpoints do not error)
         for k, v in kwargs.items():
             setattr(self, k, v)

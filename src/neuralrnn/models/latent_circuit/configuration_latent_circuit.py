@@ -45,8 +45,8 @@ class LatentCircuitConfig(NeuralRNNConfig):
             "pre_activation": z' = (1-α)z + α·f(pre);
             "post_blend":     z' = f((1-α)z + α·pre);
             "rate":           r = f(z); z' = (1-α)z + α·(w_rec@r + w_in@x).
-            Recurrent noise is always sqrt(2α)·σ added on pre (family trait,
-            all modes).
+            Recurrent noise defaults to sqrt(2α)·σ on pre in all modes.
+            Override noise_alpha_scaling/noise_position explicitly if needed.
     """
 
     model_type = "latent_circuit"
@@ -67,12 +67,14 @@ class LatentCircuitConfig(NeuralRNNConfig):
     ) -> None:
         alpha, dt = resolve_euler_alpha(dt, tau, alpha, default_dt=40.0, model_type=self.model_type)
         validate_nonlinearity_mode(nonlinearity_mode, model_type=self.model_type)
+        kwargs.setdefault("noise_alpha_scaling", True)
         super().__init__(
             input_dim=input_dim,
             latent_dim=latent_dim,
             output_dim=output_dim,
             dt=dt,
             activation=activation,
+            sigma_rec=sigma_rec,
             **kwargs,
         )
         self.alpha = alpha

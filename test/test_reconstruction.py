@@ -1,8 +1,7 @@
 """Tests for ReconstructionDataset and ReconstructionObjective.
 
 Covers:
-- Numerical equivalence with the legacy LatentCircuitObjective (guarded;
-  auto-skips once the legacy module is removed)
+- Numerical equivalence with the documented legacy latent-circuit loss formula
 - behavior_weight=0 (activity-only) and activity_weight=0 paths
 - identity / embedding / auto state maps
 - recorded_dims subset selection (partial recording)
@@ -19,12 +18,6 @@ torch = pytest.importorskip("torch")
 from neuralrnn import AutoConfig, AutoModel
 from neuralrnn.data.reconstruction_dataset import ReconstructionDataset
 from neuralrnn.train.objectives.reconstruction import ReconstructionObjective
-
-try:
-    from neuralrnn.train.objectives.latent_circuit import LatentCircuitObjective
-except ImportError:  # legacy module removed
-    LatentCircuitObjective = None
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -82,11 +75,10 @@ def _same_batch(ds):
 
 
 # ---------------------------------------------------------------------------
-# Equivalence with the legacy LatentCircuitObjective
+# Equivalence with the legacy latent-circuit formula
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skipif(LatentCircuitObjective is None, reason="legacy objective removed")
-def test_matches_legacy_latent_circuit_objective():
+def test_matches_legacy_latent_circuit_formula():
     torch.manual_seed(42)
     model = _make_lc()
     # Use a mask-free dataset: the legacy objective never applied a mask.
@@ -102,21 +94,25 @@ def test_matches_legacy_latent_circuit_objective():
     )
     batch = _same_batch(ds)
     assert "mask" not in batch
-    legacy_batch = {
-        "inputs": batch["inputs"],
-        "targets": batch["targets"],
-        "rnn_states": batch["activity"],
-    }
-
     new_obj = ReconstructionObjective(state_map="embedding", activity_weight=1.0)
-    old_obj = LatentCircuitObjective(l_y=1.0)
-
     loss_new, logs_new = new_obj.compute_loss(model, batch)
-    loss_old, logs_old = old_obj.compute_loss(model, legacy_batch)
 
-    assert torch.allclose(loss_new, loss_old, atol=0)
-    assert logs_new["mse_z"] == pytest.approx(logs_old["mse_z"])
-    assert logs_new["nmse_y"] == pytest.approx(logs_old["nmse_y"])
+    # Independent transcription of the removed LatentCircuitObjective. Keeping
+    # the reference math here verifies migration without retaining dead code.
+    out = model(batch["inputs"])
+    mse_z = torch.mean((out.outputs - batch["targets"]) ** 2)
+    embedded = out.states @ model.embedding_matrix
+    centered = batch["activity"] - batch["activity"].mean(
+        dim=[0, 1], keepdim=True
+    )
+    nmse_y = torch.mean((embedded - batch["activity"]) ** 2) / torch.mean(
+        centered ** 2
+    ).clamp_min(1e-8)
+    legacy_loss = mse_z + nmse_y
+
+    torch.testing.assert_close(loss_new, legacy_loss, rtol=0, atol=0)
+    assert logs_new["mse_z"] == pytest.approx(mse_z.item())
+    assert logs_new["nmse_y"] == pytest.approx(nmse_y.item())
 
 
 # ---------------------------------------------------------------------------

@@ -177,11 +177,6 @@ class GainRNNModel(ConstrainedRNNModel):
             w = w * self.out_mask.t()
         return w
 
-    def _noise_std(self) -> float:
-        if getattr(self.config, "noise_alpha_scaling", False):
-            return (2 * self.alpha * self.config.sigma_rec ** 2) ** 0.5
-        return self.config.sigma_rec
-
     def _euler_step(self, rec_in: torch.Tensor, z_prev: torch.Tensor,
                     x_t: torch.Tensor | None) -> torch.Tensor:
         """Shared single Euler transition given the recurrent coupling input.
@@ -195,21 +190,7 @@ class GainRNNModel(ConstrainedRNNModel):
         pre = F.linear(rec_in, W, self.h2h.bias)
         if x_t is not None:
             pre = pre + F.linear(x_t, self._input_weight(), self.input2h.bias)
-        mode = self.config.nonlinearity_mode
-        noise_pos = getattr(self.config, "noise_position", "pre")
-        add_noise = self.config.sigma_rec > 0 and self.training
-        if add_noise and noise_pos == "pre":
-            pre = pre + self._noise_std() * torch.randn_like(pre)
-        if mode == "pre_activation":
-            z = (1 - self.alpha) * z_prev + self.alpha * self.rate_map(pre)
-            if add_noise and noise_pos == "post":
-                z = z + self._noise_std() * torch.randn_like(z)
-        else:
-            update = (1 - self.alpha) * z_prev + self.alpha * pre
-            if add_noise and noise_pos == "post":
-                update = update + self._noise_std() * torch.randn_like(update)
-            z = self.rate_map(update) if mode == "post_blend" else update
-        return z
+        return self._euler_update(pre, z_prev, self.rate_map)
 
     # ---------------- hard contract ----------------
     def recurrence(self, x_t, z_prev, *, inputs=None):
@@ -240,10 +221,9 @@ class StpRNNModel(GainRNNModel):
     trained) scales U -> U_eff = clamp(stp_alpha * U, 0, 1) and can be set per
     trial via :meth:`set_stp_alpha` (Zhou & Buonomano 2024).
 
-    Analysis fallback: ``recurrence`` also accepts an (B, M) state, treating
-    syn_x = syn_u = 1 and returning (B, M). Fixed-point / linearization tools
-    therefore analyze the frozen-efficacy M-dim map, not the full 3M system —
-    interpret fixed points accordingly.
+    Legacy direct calls to ``recurrence`` accept (B, M), reset syn_x/syn_u to
+    one before each step and return (B, M). Strict analysis rejects this
+    reduced map and requires the complete 3M state.
 
     Family defaults reproduce the notebook-11 model (Masse et al. 2019 style);
     see StpRNNConfig. Note the parity details: ``input2h.bias`` is zeroed and
@@ -405,7 +385,7 @@ class StpRNNModel(GainRNNModel):
         encode recent activity (notebook-11 key fix).
         """
         h = self.h0.to(device).expand(batch_size, -1)
-        sx = torch.ones(batch_size, self.config.latent_dim, device=device)
+        sx = torch.ones(batch_size, self.config.latent_dim, device=device, dtype=h.dtype)
         su = self._effective_U().detach().to(device).expand(batch_size, -1)
         return torch.cat([h, sx, su], dim=-1)
 
@@ -413,10 +393,11 @@ class StpRNNModel(GainRNNModel):
     def recurrence(self, x_t, z_prev, *, inputs=None):
         """Single-step transition.
 
-        z_prev (B, 3M) = [h, syn_x, syn_u] -> (B, 3M). Fallback for analysis
-        tools: z_prev (B, M) treats syn_x = syn_u = 1 and returns (B, M).
+        z_prev (B, 3M) = [h, syn_x, syn_u] -> (B, 3M). Legacy direct-call fallback (rejected by strict analysis): z_prev (B, M) treats syn_x = syn_u = 1 and returns (B, M).
         """
         M = self.config.latent_dim
+        if self._strict_state:
+            self.validate_state(z_prev)
         full = z_prev.shape[-1] == 3 * M
         if full:
             h, syn_x, syn_u = z_prev.split(M, dim=-1)
@@ -485,6 +466,8 @@ class StpRNNModel(GainRNNModel):
             "syn_x": torch.stack(states_x, dim=1),
             "syn_u": torch.stack(states_u, dim=1),
         }
+        if return_states:
+            extras["full_states"] = torch.cat([states_h_t, extras["syn_x"], extras["syn_u"]], dim=-1)
         return DynamicsModelOutput(outputs=outputs_t, states=states_h_t, extras=extras)
 
     def forward_with_dropout(

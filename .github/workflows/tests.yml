@@ -1,0 +1,37 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  cpu-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install package and test tools
+        run: python -m pip install -e . pytest coverage
+      - name: Run CPU test suite with coverage
+        env:
+          CUDA_VISIBLE_DEVICES: ""
+        run: >-
+          python -m coverage run --source=src/neuralrnn -m pytest -q
+          --junitxml=pytest-${{ matrix.python-version }}.xml
+      - name: Write coverage report
+        if: always()
+        run: python -m coverage report && python -m coverage xml -o coverage-${{ matrix.python-version }}.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-python-${{ matrix.python-version }}
+          path: |
+            pytest-${{ matrix.python-version }}.xml
+            coverage-${{ matrix.python-version }}.xml

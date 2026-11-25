@@ -24,6 +24,7 @@ import warnings
 
 from .task_base import Task
 from .mante_task import ManteTask, generate_trials as mante_trials
+from .mante_lc_task import ManteLCTask, generate_trials as mante_lc_trials
 from .mante2_task import Mante2Task, generate_trials as mante2_trials
 from .dms_continuous_task import DMSContinuousTask, generate_trials as dms_continuous_trials
 from .wm_angle_task import WMAngleTask, generate_trials as wm_angle_trials
@@ -42,7 +43,7 @@ from .checkerboard_task import CheckerboardTask, generate_trials as checkerboard
 TASK_CLASSES = {
     cls.name: cls
     for cls in (
-        ManteTask, Mante2Task, RDMTask, RaposoTask, DMSTask, DMSContinuousTask,
+        ManteTask, ManteLCTask, Mante2Task, RDMTask, RaposoTask, DMSTask, DMSContinuousTask,
         WMAngleTask, WMFrequencyTask, GoNogoTask, CheckerboardTask,
         MultitaskYangTask, MultitaskFlexibleTask,
     )
@@ -81,6 +82,7 @@ def resolve_task_name(name: str) -> str:
 TASK_REGISTRY = {
     # Context-dependent decision making
     "mante": mante_trials,
+    "mante_lc": mante_lc_trials,
     "mante2": mante2_trials,
     "siegel_miller": mante_trials,  # deprecated alias
     "lr_mante": lr_mante_trials,    # deprecated alias of mante2
@@ -113,6 +115,7 @@ __all__ = [
     "resolve_task_name",
     "TASK_REGISTRY",
     "mante_trials",
+    "mante_lc_trials",
     "mante2_trials",
     "dms_continuous_trials",
     "wm_angle_trials",

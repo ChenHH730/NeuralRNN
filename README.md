@@ -12,7 +12,7 @@
 - **Paradigm A: Task Optimization**[^1]: Train RNNs on cognitive tasks, then reverse-engineer how they perform computation using analyses including fixed points, vector fields, dimensionality reduction, etc. The goal is to use RNNs as a proxy for cognitive computation.
 - **Paradigm B: Dynamical System Reconstruction (DSR)**[^2][^3]: Fit generative RNNs directly from neural/behavioral time series that can reproduce attractors, power spectra, and Lyapunov spectra of the target system.
 
-Both paradigms share a unified set of `model config`, `Trainer`, and `analysis` tools. **The only difference between the two paradigms is the `Objective`**: Paradigm A aims to optimize output for cognitive task performance, while Paradigm B aims to construct a dynamical system isomorphic to the target neural activity. Moreover, DSR can also be applied to reconstruct the dynamics of TBO-trained models for interpretability analysis[^4].
+Both paradigms share a unified set of `model config`, `Trainer`, and `analysis` tools. **The `Objective` specifies the fitting goal**: Paradigm A aims to optimize output for cognitive task performance, while Paradigm B aims to construct a dynamical system isomorphic to the target neural activity. Moreover, DSR can also be applied to reconstruct the dynamics of TBO-trained models for interpretability analysis[^4].
 
 ![fig1](assets/fig1.jpg)
 ---
@@ -32,7 +32,7 @@ NeuralRNN provides an interface to automatically connect the model to the unifie
 
 ## What NeuralRNN contains and not
 
-NeuralRNN contains the pipeline to model RNN for neuroscience research, including (1) constructing dataset, (2) building and configuring RNN models, (3) training, and (4) model analysis (see the full pipeline in **[`custom pipeline`](notebook/03_custom_pipeline.ipynb)**  and the documents in **[`docs`](docs/README.md)**). We also provide the guide to implement each built-in model through this framework (see **[`notebook`](notebook/README.md)**).
+NeuralRNN contains the pipeline to model RNN for neuroscience research, including (1) constructing dataset, (2) building and configuring RNN models, (3) training, and (4) model analysis (see the full pipeline in **[`custom pipeline`](notebook/03_custom_pipeline.ipynb)** and the **[online documentation](https://neuralrnn.readthedocs.io/)**). We also provide the guide to implement each built-in model through this framework (see **[`notebook`](notebook/README.md)**).
 
 However, there are others methods using dynamical system methods as well, including [MARBLE](https://www.nature.com/articles/s41592-024-02582-2), [FINDR](https://www.nature.com/articles/s41586-025-09528-4), [neuralflow](https://www.nature.com/articles/s41586-025-09199-1), and [SSMLearn](https://arxiv.org/abs/2510.13519). These model-agnostic methods aim to inference interpretable representations of neural population dynamics exactly from the neural response, which are not included in NeuralRNN but can be suitably combined for the further analysis of RNN models.
 
@@ -42,6 +42,8 @@ However, there are others methods using dynamical system methods as well, includ
 ```bash
 $ pip install neuralrnn
 ```
+
+This installs the complete supported stack, including NeuroGym task adapters Gymnasium-based environments and notebook tools.
 
 or
 
@@ -137,7 +139,11 @@ notebook/                  # end-to-end tutorials for each paper
 
 ## License
 
-MIT, see [LICENSE](LICENSE). Original code of ported papers belongs to their respective authors; please follow their individual licenses when porting.
+NeuralRNN 0.5.0 is distributed under the GNU General Public License v3.0 only (`GPL-3.0-only`); see [LICENSE](LICENSE). Adapted third-party components retain their original copyright notices and applicable license terms. The complete file-level source and license ledger is provided in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), with the corresponding license texts under [licenses/](licenses/).
+
+Components described as reimplementations were written for NeuralRNN after consulting the cited papers, task protocols, interfaces or numerical behavior; the referenced source code is not redistributed as part of those components.
+
+Copyright © 2026 Honghua Chen and NeuralRNN contributors.
 
 ## References
 

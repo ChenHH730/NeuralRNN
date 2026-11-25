@@ -183,20 +183,7 @@ class LatentCircuitModel(NeuralDynamicsModel):
         rec_in = self.act(z_prev) if mode == "rate" else z_prev
         pre = self.w_rec(rec_in) + self.w_in(x_t)
 
-        # Add recurrent noise during training (always sqrt(2α)·σ on pre: family trait)
-        if self.sigma_rec > 0 and self.training:
-            noise_std = (2 * self.alpha * self.sigma_rec ** 2) ** 0.5
-            noise = noise_std * torch.randn_like(pre)
-            pre = pre + noise
-
-        # Euler discretization with the configured activation
-        if mode == "post_blend":
-            z_t = self.act((1 - self.alpha) * z_prev + self.alpha * pre)
-        elif mode == "rate":
-            z_t = (1 - self.alpha) * z_prev + self.alpha * pre
-        else:
-            z_t = (1 - self.alpha) * z_prev + self.alpha * self.act(pre)
-        return z_t
+        return self._euler_update(pre, z_prev, self.act)
 
     def readout(self, z_t: torch.Tensor) -> torch.Tensor:
         """Readout from latent state to task output.

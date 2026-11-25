@@ -30,7 +30,7 @@ UNIFIED_KEYS = {"epochs", "n_steps", "is_catch"}
 class TestTaskRegistry:
     def test_canonical_names(self):
         assert set(TASK_CLASSES) == {
-            "mante", "mante2", "rdm", "raposo", "dms", "dms_continuous",
+            "mante", "mante_lc", "mante2", "rdm", "raposo", "dms", "dms_continuous",
             "wm_angle", "wm_frequency", "go_nogo", "checkerboard",
             "multitask_yang", "multitask_flexible",
         }
@@ -64,7 +64,7 @@ class TestTaskClasses:
     def test_unified_condition_keys_all_tasks(self):
         for name, cls in TASK_CLASSES.items():
             kwargs = {"rule": "fdgo"} if name.startswith("multitask") else {}
-            if name in ("mante", "dms_continuous"):
+            if name in ("mante", "mante_lc", "dms_continuous"):
                 kwargs["n_reps"] = 1
             elif name == "go_nogo":
                 kwargs["n_values"] = 4
@@ -81,7 +81,7 @@ class TestTaskClasses:
     def test_task_dims_match_class_attrs(self):
         for name, cls in TASK_CLASSES.items():
             kwargs = {"rule": "fdgo"} if name.startswith("multitask") else {}
-            if name in ("mante", "dms_continuous"):
+            if name in ("mante", "mante_lc", "dms_continuous"):
                 kwargs["n_reps"] = 1
             elif name == "go_nogo":
                 kwargs["n_values"] = 2

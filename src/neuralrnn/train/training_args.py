@@ -1,8 +1,8 @@
 """Training hyperparameter container (≈ transformers.TrainingArguments).
 
 All training-related hyperparameters are centralized in this dataclass and read by Trainer.
-Paradigm-specific hyperparameters (e.g., GTF forcing strength alpha, LFADS KL weight) belong
-in the corresponding Objective's config, keeping Trainer generic.
+Paradigm-specific hyperparameters (e.g., GTF forcing strength alpha, reconstruction loss
+weights) belong in the corresponding Objective's config, keeping Trainer generic.
 """
 from __future__ import annotations
 

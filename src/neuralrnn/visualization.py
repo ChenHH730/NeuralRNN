@@ -167,12 +167,10 @@ def plot_fixed_points(
     Returns:
         (fig, ax)
     """
-    from .analysis.linearization import classify_fixed_point
-    from .analysis.linearization import LinearizationResult
-
     _colors = {"stable": "#2196F3", "unstable": "#F44336", "saddle": "#FF9800",
-               "unknown": "#9E9E9E"}
-    _markers = {"stable": "o", "unstable": "X", "saddle": "^", "unknown": "s"}
+               "unknown": "#9E9E9E", "near_neutral": "#9C6ADE", "nondifferentiable": "#795548"}
+    _markers = {"stable": "o", "unstable": "X", "saddle": "^", "unknown": "s",
+                "near_neutral": "D", "nondifferentiable": "P"}
     if colors:
         _colors.update(colors)
     if markers:
@@ -188,7 +186,9 @@ def plot_fixed_points(
 
         # Classification
         if fp.is_stable is None:
-            cat = "unknown"
+            cat = getattr(fp, 'stability', 'unknown')
+            if cat not in _colors:
+                cat = 'unknown'
         elif fp.is_stable:
             cat = "stable"
         else:
@@ -198,7 +198,7 @@ def plot_fixed_points(
                    s=size, zorder=5, edgecolors='black', linewidths=0.5)
 
     # Legend
-    for cat in ["stable", "unstable", "saddle", "unknown"]:
+    for cat in ["stable", "unstable", "saddle", "near_neutral", "nondifferentiable", "unknown"]:
         ax.scatter([], [], c=_colors[cat], marker=_markers[cat], s=size,
                    label=cat, edgecolors='black', linewidths=0.5)
     ax.legend(fontsize=8)
@@ -232,7 +232,7 @@ def plot_fixed_points_3d(
         (fig, ax)
     """
     _colors = {"stable": "#2196F3", "unstable": "#F44336", "saddle": "#FF9800",
-               "unknown": "#9E9E9E"}
+               "unknown": "#9E9E9E", "near_neutral": "#9C6ADE", "nondifferentiable": "#795548"}
     if colors:
         _colors.update(colors)
 
@@ -247,6 +247,8 @@ def plot_fixed_points_3d(
             continue
 
         cat = "stable" if fp.is_stable else ("unstable" if fp.is_stable is not None else "unknown")
+        if fp.is_stable is None and getattr(fp, 'stability', '') in _colors:
+            cat = fp.stability
         ax.scatter(z[0], z[1], z[2], c=_colors[cat], marker='o',
                    s=size, zorder=5, edgecolors='black', linewidths=0.5)
 

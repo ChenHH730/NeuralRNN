@@ -69,13 +69,16 @@ def effective_dimensionality(
 
 
 @torch.no_grad()
-def collect_states(model: NeuralDynamicsModel, dataset, n_batches: int = 1) -> np.ndarray:
+def collect_states(model: NeuralDynamicsModel, dataset, n_batches: int = 1, *,
+                   full_state: bool = False, recurrent_noise: bool | None = None,
+                   noise_generator=None) -> np.ndarray:
     """Run several batches, collect latent trajectories, and flatten them into (N_points, M) for PCA /
     vector-field use."""
-    model.eval()
     chunks = []
-    for _ in range(n_batches):
-        batch = dataset.sample_batch()
-        out = model(batch["inputs"])
-        chunks.append(out.states.reshape(-1, out.states.shape[-1]).cpu().numpy())
+    with model.evaluation_context(noise=recurrent_noise, generator=noise_generator):
+        for _ in range(n_batches):
+            batch = dataset.sample_batch()
+            states = (model.full_state_trajectory(batch["inputs"]) if full_state
+                      else model(batch["inputs"]).states)
+            chunks.append(states.reshape(-1, states.shape[-1]).cpu().numpy())
     return np.concatenate(chunks, axis=0)

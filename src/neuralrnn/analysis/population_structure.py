@@ -1,8 +1,10 @@
 """Population structure analysis for low-rank and similar RNN models.
 
 Tools for extracting connectivity vectors, fitting Gaussian mixture models
-on neuron feature spaces, and analyzing functional populations.  Ported from
-Dubreuil et al. (2022) Nature Neuroscience.
+on neuron feature spaces, and analyzing functional populations.  This module
+reimplements the analysis described by Dubreuil et al. (2022), Nature
+Neuroscience, for NeuralRNN; the public analysis code was consulted for the
+feature definitions and analysis conventions.
 
 Design: make_vecs() uses duck-typing on model attributes (m, n, wi, wo,
 rank, input_size, output_size).  It works with any model that exposes these

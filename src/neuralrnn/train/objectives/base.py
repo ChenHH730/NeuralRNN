@@ -2,7 +2,7 @@
 
 Design motivation (ARCHITECTURE §4): the model only describes the "dynamical system + readout"
 and does **not** carry its own loss. Paradigm differences (task optimization vs. dynamics
-reconstruction vs. behavior fitting vs. variational inference) are all encapsulated in Objectives:
+reconstruction vs. behavior fitting) are all encapsulated in Objectives:
 
     Objective.compute_loss(model, batch) -> (loss, logs)
 

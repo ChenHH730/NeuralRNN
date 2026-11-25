@@ -4,7 +4,6 @@ Covers the three main training paradigms used in NeuralRNN:
   - SupervisedObjective (classification / regression, paradigm A)
   - TeacherForcingObjective (dynamics reconstruction, paradigm B)
   - BehavioralObjective (behavior fitting, Tiny RNN paradigm)
-  - VariationalObjective (LFADS-style ELBO skeleton)
 
 Style follows the existing test suite: torch is lazily imported, and toy
 inline dataset classes provide minimal data contracts.
@@ -16,16 +15,15 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from neuralrnn import AutoConfig, AutoModel, NeuralDynamicsModel, NeuralRNNConfig
+from neuralrnn import AutoConfig, AutoModel
 from neuralrnn import (
     SupervisedObjective, TeacherForcingObjective,
-    BehavioralObjective, VariationalObjective,
+    BehavioralObjective,
     ReconstructionObjective, ConstrainedSupervisedObjective,
     RegularizedSupervisedObjective,
     build_objective, OBJECTIVE_REGISTRY, AutoObjective,
 )
 from neuralrnn.data import BaseDataset
-from neuralrnn.modeling_utils import DynamicsModelOutput
 
 
 class _ToyTask(BaseDataset):
@@ -72,41 +70,6 @@ class _ToyTimeSeries(BaseDataset):
         return {"activity": torch.stack(xs)}
 
 
-class _TinyVariationalModel(NeuralDynamicsModel):
-    """Minimal model that exposes rates + kl in output.extras."""
-
-    def __init__(self, input_dim: int, latent_dim: int, output_dim: int):
-        config = NeuralRNNConfig(
-            input_dim=input_dim, latent_dim=latent_dim, output_dim=output_dim
-        )
-        super().__init__(config)
-        self.encoder = torch.nn.Linear(input_dim, latent_dim)
-        self.readout_layer = torch.nn.Linear(latent_dim, output_dim)
-
-    def recurrence(self, x_t, z_prev, *, inputs=None):
-        return torch.tanh(self.encoder(x_t) + z_prev)
-
-    def readout(self, z_t):
-        return self.readout_layer(z_t)
-
-    def forward(self, inputs, **kwargs):
-        # Simple feed-forward-through-time for smoke testing.
-        B, T, _ = inputs.shape
-        z = self.init_state(B, device=inputs.device)
-        states, outputs = [], []
-        for t in range(T):
-            z = self.recurrence(inputs[:, t], z)
-            states.append(z)
-            outputs.append(self.readout(z))
-        rates = torch.relu(torch.stack(outputs, dim=1)) + 1e-3
-        kl = torch.tensor(0.05, device=inputs.device)
-        return DynamicsModelOutput(
-            outputs=rates,
-            states=torch.stack(states, dim=1),
-            extras={"rates": rates, "kl": kl},
-        )
-
-
 class TestBuildObjective:
     def test_build_from_string(self):
         obj = build_objective("supervised", task_type="classification")
@@ -125,7 +88,7 @@ class TestBuildObjective:
     def test_registry_contains_all_objectives(self):
         expected = {
             "supervised", "regularized_supervised", "teacher_forcing",
-            "behavioral", "variational", "reconstruction", "constrained_supervised",
+            "behavioral", "reconstruction", "constrained_supervised",
         }
         assert expected.issubset(set(OBJECTIVE_REGISTRY))
 
@@ -170,6 +133,30 @@ class TestSupervisedObjective:
 
 
 class TestRegularizedSupervisedObjective:
+    def test_regularizers_share_one_stochastic_rollout(self):
+        """Task and activity terms must not trigger independent noisy forwards."""
+        ds = _ToyRegression()
+        cfg = AutoConfig.for_model(
+            "ctrnn", input_dim=3, latent_dim=16, output_dim=2, sigma_rec=0.1
+        )
+        model = AutoModel.from_config(cfg)
+        calls = 0
+        original_forward = model.forward
+
+        def counted_forward(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return original_forward(*args, **kwargs)
+
+        model.forward = counted_forward
+        obj = RegularizedSupervisedObjective(
+            task_type="regression",
+            activity_weight=0.1,
+            mse_reduce="global",
+        )
+        obj.compute_loss(model, ds.sample_batch())
+        assert calls == 1
+
     def test_activity_regularizer(self):
         ds = _ToyRegression()
         cfg = AutoConfig.for_model("ctrnn", input_dim=3, latent_dim=16, output_dim=2)
@@ -336,22 +323,3 @@ class TestBehavioralObjective:
         assert loss.ndim == 0
         assert "loss" in logs
         assert "nll" in logs
-
-
-class TestVariationalObjective:
-    def test_compute_loss_returns_scalar(self):
-        B, T, N = 4, 10, 2
-        model = _TinyVariationalModel(input_dim=N, latent_dim=4, output_dim=N)
-        obj = VariationalObjective(kl_weight=1.0, likelihood="poisson")
-
-        batch = {
-            "inputs": torch.randn(B, T, N),
-            "targets": torch.poisson(torch.rand(B, T, N) * 2.0),
-        }
-        loss, logs = obj.compute_loss(model, batch)
-
-        assert isinstance(loss, torch.Tensor)
-        assert loss.ndim == 0
-        assert "loss" in logs
-        assert "recon" in logs
-        assert "kl" in logs

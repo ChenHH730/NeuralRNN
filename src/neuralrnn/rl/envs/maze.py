@@ -1,9 +1,11 @@
 """Toroidal maze environment with a hidden goal and a "think" meta-action.
 
-Port of the dynamic maze task of Jensen, Hennequin & Mattar (2024, Nature
-Neuroscience, "A recurrent network model of planning explains hippocampal
-replay and human behavior"; Julia reference: ``src/walls*.jl``, ``src/maze.jl``,
-``src/initializations.jl`` of the ToPlanOrNotToPlan repository).
+NeuralRNN reimplementation of the dynamic maze task described by Jensen,
+Hennequin & Mattar (2024, Nature Neuroscience, "A recurrent network model of
+planning explains hippocampal replay and human behavior").  The public Julia
+implementation (``src/walls*.jl``, ``src/maze.jl`` and
+``src/initializations.jl`` of the ToPlanOrNotToPlan repository) was consulted
+for task and interface conventions.
 
 Task: a new random maze (recursive backtracker on a torus, plus a few extra
 walls removed to create multiple routes) and a new hidden reward location are
@@ -49,7 +51,7 @@ THINK = 4
 
 def generate_maze(arena_size: int, n_holes: int | None = None,
                   rng=None) -> np.ndarray:
-    """Recursive-backtracker maze on a torus (port of ``maze.jl``).
+    """Recursive-backtracker toroidal maze used by the reimplemented task.
 
     Starts from all walls present, carves a spanning tree via a randomized
     depth-first walk with toroidal wrapping, then removes ``n_holes``

@@ -1,6 +1,8 @@
 """Low-rank RNN configuration.
 
-Port of the LowRankRNN from Dubreuil et al. (2022) / Valente et al. (2022).
+Configuration for NeuralRNN's reimplementation of the low-rank RNN described
+by Dubreuil et al. (2022) and Valente et al. (2022).  Public reference code was
+consulted for model and parameter conventions.
 The recurrent weight matrix is parametrized as:
     W_rec = m @ n^T / N   (when scale_by_hidden_size=True)
 
@@ -138,12 +140,14 @@ class LowrankRNNConfig(NeuralRNNConfig):
             kwargs.setdefault("freeze_h0", True)
         alpha, dt = resolve_euler_alpha(dt, tau, alpha, default_dt=20.0, model_type=self.model_type)
         validate_nonlinearity_mode(nonlinearity_mode, model_type=self.model_type)
+        kwargs.setdefault("noise_position", "state")
         super().__init__(
             input_dim=input_dim,
             latent_dim=latent_dim,
             output_dim=output_dim,
             dt=dt,
             activation=activation,
+            sigma_rec=sigma_rec,
             **kwargs,
         )
         self.rank = rank

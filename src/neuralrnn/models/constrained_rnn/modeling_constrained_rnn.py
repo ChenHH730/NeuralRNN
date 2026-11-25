@@ -110,7 +110,17 @@ class ConstrainedRNNModel(CTRNNModel):
         if self.rec_mask is not None:
             W = W * self.rec_mask
         if self.dale_mask is not None:
-            W = W.abs() @ self.dale_mask
+            # ``ei_positive_func`` is inherited from CTRNNConfig and must be
+            # honored by every Dale-constrained descendant.  In particular,
+            # Masse et al.'s STP-RNN uses relu(raw_weight), whereas ``abs`` has
+            # a non-zero gradient on negative raw weights and therefore follows
+            # a different training trajectory despite identical positive-weight
+            # forward preflights.
+            if getattr(self.config, "ei_positive_func", "rectify") == "rectify":
+                W = F.relu(W)
+            else:
+                W = W.abs()
+            W = W @ self.dale_mask
         return W
 
     def recurrence(self, x_t, z_prev, *, inputs=None):
@@ -129,19 +139,7 @@ class ConstrainedRNNModel(CTRNNModel):
         pre = F.linear(x_t, in_weight, self.input2h.bias) + F.linear(
             rec_in, W, self.h2h.bias
         )
-        if self.config.sigma_rec > 0 and self.training:
-            if getattr(self.config, "noise_alpha_scaling", False):
-                noise_std = (2 * self.alpha * self.config.sigma_rec ** 2) ** 0.5
-            else:
-                noise_std = self.config.sigma_rec
-            pre = pre + noise_std * torch.randn_like(pre)
-        if mode == "post_blend":
-            z = self.act((1 - self.alpha) * z_prev + self.alpha * pre)
-        elif mode == "rate":
-            z = (1 - self.alpha) * z_prev + self.alpha * pre
-        else:
-            z = (1 - self.alpha) * z_prev + self.alpha * self.act(pre)
-        return z
+        return self._euler_update(pre, z_prev, self.act)
 
     def readout(self, z_t):
         """Masked linear readout. z_t: (B, M) -> y_t: (B, output_dim)."""
@@ -226,18 +224,21 @@ class SERNNModel(ConstrainedRNNModel):
             self._apply_masks_to_weights()
 
     def constraint_loss(self) -> torch.Tensor:
-        """Distance-weighted L1 (+ optional communicability) on recurrent weights."""
+        """Distance-weighted L1 with differentiable weighted communicability.
+
+        The reference Keras kernel is (source, target); our weight is
+        (target, source), so reference row sums become column sums here.
+        """
         W = self.h2h.weight.abs()
         if self.comms_factor > 0:
-            with torch.no_grad():
-                absW = W.detach()
-                row_sum = absW.sum(dim=1).clamp_min(1e-12)
-                D_inv_sqrt = torch.diag(row_sum ** -0.5)
-                # Unbiased weighted communicability: exp(D^{-1/2} |W| D^{-1/2})
-                comms = torch.linalg.matrix_exp(D_inv_sqrt @ absW @ D_inv_sqrt)
-                comms.fill_diagonal_(0)
-                comms = comms ** self.comms_factor
-            W = W * comms.detach()
+            source_strength = W.sum(dim=0).clamp_min(1e-12)
+            D_inv_sqrt = torch.diag(source_strength ** -0.5)
+            comms = torch.linalg.matrix_exp(D_inv_sqrt @ W @ D_inv_sqrt)
+            # Power before removing self-cost avoids differentiating a zero
+            # diagonal through a fractional power. Preserve the expm graph.
+            comms = comms ** self.comms_factor
+            comms = comms - torch.diag_embed(comms.diagonal())
+            W = W * comms
         loss = self.se1_weight * (W * self.distance_matrix).sum()
         return loss
 

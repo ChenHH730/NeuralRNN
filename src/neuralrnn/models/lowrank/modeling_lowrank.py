@@ -1,6 +1,9 @@
 """Low-rank RNN model (Paradigm A: task-optimized RNN).
 
-Port of LowRankRNN from Dubreuil et al. (2022) / Valente et al. (2022).
+NeuralRNN reimplementation of the low-rank RNN described by Dubreuil et al.
+(2022) and Valente et al. (2022).  The public reference implementations were
+consulted for the model equations, parameter conventions, and expected
+interfaces.
 
 The recurrent weight matrix is parametrized as:
     W_rec = m @ n^T / N   (when scale_by_hidden_size=True)
@@ -183,19 +186,22 @@ class LowrankRNNModel(NeuralDynamicsModel):
         # External input
         inp = x_t @ self.wi_full  # (B, N)
 
-        # Euler update
+        return self._update_from_drive(rec, inp, z_prev)
+
+    def _update_from_drive(self, rec, inp, state, *, noise=None):
+        mode = self.config.nonlinearity_mode
+        pre = rec if mode == "rate" else rec + inp + self.b
+        pre = self._add_recurrent_noise(pre, "pre", noise=noise)
         if mode == "rate":
-            z_t = z_prev + self.alpha * (-z_prev + rec + inp)
+            result = state + self.alpha * (-state + pre + inp)
+            result = self._add_recurrent_noise(result, "post", noise=noise)
         elif mode == "post_blend":
-            z_t = self.act((1 - self.alpha) * z_prev + self.alpha * (rec + inp + self.b))
+            result = (1 - self.alpha) * state + self.alpha * pre
+            result = self.act(self._add_recurrent_noise(result, "post", noise=noise))
         else:
-            z_t = (1 - self.alpha) * z_prev + self.alpha * self.act(rec + inp + self.b)
-
-        # Add noise during training (always after the Euler update: family trait)
-        if self.sigma_rec > 0 and self.training:
-            z_t = z_t + self.sigma_rec * torch.randn_like(z_t)
-
-        return z_t
+            result = (1 - self.alpha) * state + self.alpha * self.act(pre)
+            result = self._add_recurrent_noise(result, "post", noise=noise)
+        return self._add_recurrent_noise(result, "state", noise=noise)
 
     def readout(self, z_t: torch.Tensor) -> torch.Tensor:
         """Readout from hidden state.
@@ -271,7 +277,7 @@ class LowrankRNNModel(NeuralDynamicsModel):
         r = self.act(h) if mode == "rate" else None
 
         # Noise (pre-sample for efficiency)
-        noise = torch.randn(batch_size, T, N, device=device)
+        noise = self._randn_like(torch.empty(batch_size, T, N, device=device, dtype=self.h0.dtype)) if self.recurrent_noise_enabled else None
 
         output = torch.zeros(batch_size, T, self.config.output_dim, device=device)
         trajectories = []
@@ -288,14 +294,7 @@ class LowrankRNNModel(NeuralDynamicsModel):
                 rec = rec / N
 
             inp = inputs[:, i, :] @ self.wi_full
-            if mode == "rate":
-                h = h + self.alpha * (-h + rec + inp)
-            elif mode == "post_blend":
-                h = self.act((1 - self.alpha) * h + self.alpha * (rec + inp + self.b))
-            else:
-                h = (1 - self.alpha) * h + self.alpha * self.act(rec + inp + self.b)
-            if self.sigma_rec > 0 and self.training:
-                h = h + self.sigma_rec * noise[:, i, :]
+            h = self._update_from_drive(rec, inp, h, noise=None if noise is None else noise[:, i, :])
             if mode == "rate":
                 r = self.act(h + self.b)  # now with bias
 

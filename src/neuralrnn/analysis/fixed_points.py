@@ -1,287 +1,325 @@
-"""Fixed point / k-cycle analysis (dual backend).
+"""Fixed points and periodic orbits of the complete deterministic discrete map.
 
-Two backends:
-  1) Numeric backend NumericFixedPointFinder:
-     initializes a batch of candidate states in parallel, minimizes ‖F(z) − z‖² (velocity-field norm) with Adam,
-     filters by a speed threshold, and removes duplicates.
-     Applicable to any model (including the discrete step of continuous CTRNNs).
-  2) Analytic backend AnalyticPLRNNFixedPointFinder
-     scy_fi / main: exploits the piecewise-linear structure of PLRNNs to solve fixed points and k-cycles exactly,
-     together with their eigenvalues.
-     Only available when model.supports_analytic_fixed_points and analytic_parameters() are implemented.
-
-The unified entry point find_fixed_points(model, ...) automatically picks the best available backend (analytic preferred, numeric fallback).
+Accepted points and rejected candidate diagnostics are separate. Residuals are
+Euclidean norms in the original state units. See docs/FIXED_POINT_METHODS.md.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-
 import numpy as np
 import torch
 
 from ..modeling_utils import NeuralDynamicsModel
+from ._context import deterministic_analysis
+from ._stability import spectral_stability
 
 
 @dataclass
 class FixedPoint:
-    """One fixed point (or k-cycle) with its local stability information."""
+    """Accepted root or orbit; speed is its measured maximum step residual."""
+    z: np.ndarray
+    speed: float
+    eigenvalues: np.ndarray | None = None
+    is_stable: bool | None = None
+    order: int = 1
+    cycle: np.ndarray | None = None
+    stability: str = 'unknown'
+    spectral_radius: float | None = None
 
-    z: np.ndarray                       # Fixed-point coordinate (M,)
-    speed: float                        # ‖F(z) − z‖ (numeric backend); 0 for analytic backend
-    eigenvalues: np.ndarray | None = None  # Jacobian eigenvalues
-    is_stable: bool | None = None       # Discrete system: max|eig| < 1
-    order: int = 1                      # 1 = fixed point; k>1 = k-cycle (analytic backend)
-    cycle: np.ndarray | None = None     # All points of the k-cycle (order, M)
+
+@dataclass
+class CandidateDiagnostic:
+    """One solver outcome. Converged means the residual criterion passed.
+
+    Solver termination success is recorded separately; duplicates can be
+    converged but not accepted. Failed candidates never enter ``points``.
+    """
+    z: np.ndarray
+    speed: float
+    q: float
+    converged: bool
+    accepted: bool = False
+    status: str = 'unconverged'
+    initial_state: np.ndarray | None = None
+    iterations: int | None = None
+    nfev: int | None = None
+    solver_success: bool | None = None
+    message: str = ''
+    duplicate_of: int | None = None
+    order: int = 1
 
 
 @dataclass
 class FixedPointSet:
-    """Container for the fixed points found by a finder (list of FixedPoint)."""
-
+    """Accepted results, candidate diagnostics and a reproducible protocol."""
     points: list[FixedPoint] = field(default_factory=list)
+    diagnostics: list[CandidateDiagnostic] = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)
 
     def coords(self) -> np.ndarray:
-        """Stack all fixed-point coordinates into an (n_points, M) array."""
         return np.stack([p.z for p in self.points]) if self.points else np.empty((0,))
 
-    def __len__(self): return len(self.points)
-    def __iter__(self): return iter(self.points)
+    def __len__(self):
+        return len(self.points)
+
+    def __iter__(self):
+        return iter(self.points)
 
 
-# =========================================================================
-# Numeric backend (gradient-based, model-agnostic)
-# =========================================================================
+def _positive(name, value, zero=False):
+    if not np.isfinite(value) or (value < 0 if zero else value <= 0):
+        raise ValueError(f'{name} must be finite and {"nonnegative" if zero else "positive"}')
+
+
+def _integer(name, value, zero=False):
+    _positive(name, value, zero)
+    if isinstance(value, bool) or int(value) != value:
+        raise ValueError(f'{name} must be an integer')
+
+
+def _scale(state_scale, width):
+    scale = np.ones(width) if state_scale is None else np.asarray(state_scale, dtype=float)
+    if scale.shape != (width,) or not np.isfinite(scale).all() or (scale <= 0).any():
+        raise ValueError('state_scale must contain one finite positive value per complete state coordinate')
+    return scale
+
+
+def _input(model, task_input):
+    if task_input is None:
+        return None
+    p = next(model.parameters())
+    x = torch.as_tensor(task_input, device=p.device, dtype=p.dtype)
+    if x.ndim != 1 or x.shape[0] != model.config.input_dim or not torch.isfinite(x).all():
+        raise ValueError('task_input must be a finite (input_dim,) constant input')
+    return x[None]
+
+
+def _states(model, init_states):
+    p = next(model.parameters())
+    z = torch.as_tensor(init_states, device=p.device, dtype=p.dtype).detach()
+    model.validate_state(z)
+    if z.ndim < 1 or z.numel() == 0 or not torch.isfinite(z).all():
+        raise ValueError('init_states must be nonempty and finite')
+    return z.reshape(-1, model.state_dim).clone()
+
+
+def _metadata(finder, model, xin, source, initial=None):
+    p = next(model.parameters())
+    params = {k: v.tolist() if isinstance(v, np.ndarray) else v for k, v in vars(finder).items()}
+    return dict(backend=type(finder).__name__, parameters=params,
+                state_dim=model.state_dim, dtype=str(p.dtype), device=str(p.device),
+                task_input=None if xin is None else xin[0].detach().cpu().tolist(),
+                candidate_source=source, n_candidates_actual=None if initial is None else len(initial),
+                initial_min=None if initial is None else initial.min(0).values.detach().cpu().tolist(),
+                initial_max=None if initial is None else initial.max(0).values.detach().cpu().tolist(),
+                distance='Euclidean norm of (z1-z2)/state_scale',
+                state_scale=_scale(finder.state_scale, model.state_dim).tolist(),
+                residual='norm(F(z)-z), unscaled state units',
+                recurrent_noise=False, search_is_exhaustive=False)
+
+
+def _point(z, speed, eig, stability_tol, **kwargs):
+    label, stable, _, _, radius = spectral_stability(eig, stability_tol)
+    return FixedPoint(z=z, speed=speed, eigenvalues=eig, is_stable=stable,
+                      stability=label, spectral_radius=radius, **kwargs)
+
+
+def _finish(model, z, speeds, initial, finder, xin, metadata, iterations, records=None):
+    coords = z.detach().cpu().numpy()
+    speeds = np.asarray(speeds, dtype=float)
+    scale = _scale(finder.state_scale, model.state_dim)
+    threshold = np.sqrt(2 * finder.tol_q) if hasattr(finder, 'tol_q') else finder.speed_tol
+    metadata.update(residual_threshold=float(threshold), acceptance='speed < residual_threshold')
+    fps = FixedPointSet(metadata=metadata)
+    for i, (c, sp) in enumerate(zip(coords, speeds)):
+        finite = bool(np.isfinite(c).all() and np.isfinite(sp))
+        record = {} if records is None else records[i]
+        converged = finite and sp < threshold and not record.get('error', False)
+        fps.diagnostics.append(CandidateDiagnostic(
+            z=c.copy(), speed=float(sp), q=float(0.5 * sp**2), converged=converged,
+            status='converged' if converged else ('nonfinite' if not finite else 'unconverged'),
+            initial_state=initial[i].detach().cpu().numpy().copy(),
+            iterations=record.get('iterations', iterations), nfev=record.get('nfev'),
+            solver_success=record.get('success'), message=record.get('message', '')))
+        if record.get('error', False):
+            fps.diagnostics[-1].status = 'solver_error'
+    for i in np.argsort(speeds):
+        d = fps.diagnostics[i]
+        if not d.converged:
+            continue
+        duplicate = next((j for j, p in enumerate(fps.points)
+                          if np.linalg.norm((d.z - p.z) / scale) < finder.dedup_tol), None)
+        if duplicate is not None:
+            d.status, d.duplicate_of = 'duplicate', duplicate
+            continue
+        state = torch.as_tensor(d.z, dtype=z.dtype, device=z.device)
+        J = model.jacobian(state, inputs=xin).detach().cpu().numpy()
+        eig = np.linalg.eigvals(J) if np.isfinite(J).all() else None
+        fps.points.append(_point(d.z, d.speed, eig, finder.stability_tol))
+        d.accepted, d.status = True, 'accepted'
+    metadata.update(n_converged=sum(d.converged for d in fps.diagnostics), n_accepted=len(fps))
+    return fps
+
+
 class NumericFixedPointFinder:
-    """Search for fixed points by minimizing the velocity-field norm ‖F(z) − z‖²."""
+    """Adam minimizes mean((F(z)-z)**2) over candidates and coordinates.
 
-    def __init__(self, n_candidates: int = 64, n_iters: int = 10000, lr: float = 1e-3,
-                 speed_tol: float = 1e-1, dedup_tol: float = 1e-2,
-                 init_scale: float = 3.0, init_positive: bool = True):
-        self.n_candidates = n_candidates
-        self.n_iters = n_iters
-        self.lr = lr
-        self.speed_tol = speed_tol
-        self.dedup_tol = dedup_tol
-        self.init_scale = init_scale
-        self.init_positive = init_positive
+    ``speed_tol`` applies to the per-candidate L2 norm, not the mean loss.
+    The legacy default 0.1 is retained; scientific runs must calibrate it.
+    Supplied complete states are used directly, without resampling.
+
+    ``init_positive`` selects the default candidate distribution: True samples
+    uniform [0, init_scale) (non-negative activity), False samples symmetric
+    uniform [-init_scale/2, init_scale/2). None (default) picks automatically:
+    signed currents (``nonlinearity_mode="rate"``) get the symmetric range,
+    everything else the non-negative one.
+    """
+    def __init__(self, n_candidates=64, n_iters=10000, lr=1e-3,
+                 speed_tol=1e-1, dedup_tol=1e-2, init_scale=3.0,
+                 init_positive=None, stability_tol=1e-6, state_scale=None, seed=None):
+        for name, value in [('n_candidates', n_candidates), ('n_iters', n_iters)]:
+            _integer(name, value, zero=name == 'n_iters')
+        for name, value in [('lr', lr), ('speed_tol', speed_tol), ('dedup_tol', dedup_tol)]:
+            _positive(name, value)
+        _positive('init_scale', init_scale, zero=True)
+        if init_positive not in (None, True, False):
+            raise ValueError('init_positive must be True, False or None (auto)')
+        spectral_stability(None, stability_tol)
+        self.n_candidates, self.n_iters, self.lr = n_candidates, n_iters, lr
+        self.speed_tol, self.dedup_tol = speed_tol, dedup_tol
+        self.init_scale, self.init_positive = init_scale, init_positive
+        self.stability_tol, self.state_scale, self.seed = stability_tol, state_scale, seed
 
     @torch.no_grad()
     def _speed(self, model, z, task_input):
-        f = model.recurrence(task_input, z)
-        return (f - z).norm(dim=-1)
+        return (model.recurrence(task_input, z) - z).norm(dim=-1)
 
-    def find(self, model: NeuralDynamicsModel, *, task_input: torch.Tensor | None = None,
-             init_states: torch.Tensor | None = None) -> FixedPointSet:
-        """task_input: (input_dim,) constant input condition during search (e.g., mean input at 0-coherence in a decision task)."""
-        was_training = model.training
-        model.eval()
+    @deterministic_analysis
+    def find(self, model, *, task_input=None, init_states=None):
+        p = next(model.parameters())
+        xin = _input(model, task_input)
+        _scale(self.state_scale, model.state_dim)
+        if init_states is None:
+            generator = None if self.seed is None else torch.Generator(device=p.device).manual_seed(self.seed)
+            init_positive = self.init_positive
+            if init_positive is None:
+                # Rate-mode models store signed currents; others store activity.
+                init_positive = getattr(model.config, 'nonlinearity_mode', None) != 'rate'
+            z = model.init_state(self.n_candidates, p.device).detach().clone().to(p.dtype)
+            activity = torch.rand(self.n_candidates, model.config.latent_dim,
+                                  dtype=p.dtype, device=p.device, generator=generator) * self.init_scale
+            z[:, :model.config.latent_dim] = activity if init_positive else activity - self.init_scale / 2
+        else:
+            init_positive = None
+            z = _states(model, init_states)
+        initial = z.clone()
+        metadata = _metadata(self, model, xin,
+                             'uniform activity; auxiliary init_state' if init_positive else
+                             'uniform signed; auxiliary init_state' if init_positive is False
+                             else 'all supplied complete states', initial)
         for p in model.parameters():
             p.requires_grad_(False)
-
-        M = model.config.latent_dim
-        device = next(model.parameters()).device
-
-        if init_states is None:
-            base = torch.rand(self.n_candidates, M, device=device) * self.init_scale
-            z = base if self.init_positive else (base - self.init_scale / 2)
-        else:
-            z = init_states.clone().to(device)
         z = z.detach().requires_grad_(True)
-
-        if task_input is not None:
-            xin = task_input.to(device).unsqueeze(0).expand(z.shape[0], -1)
-        else:
-            xin = None
-
         opt = torch.optim.Adam([z], lr=self.lr)
+        steps = 0
         for _ in range(self.n_iters):
             opt.zero_grad()
-            f = model.recurrence(xin, z)
-            loss = ((f - z) ** 2).mean()
+            loss = (model.recurrence(xin, z) - z).square().mean()
+            if not torch.isfinite(loss):
+                metadata['termination'] = 'nonfinite objective'
+                break
             loss.backward()
             opt.step()
-
-        # Speed filtering (sort by speed and keep the best candidates first)
-        speeds = self._speed(model, z.detach(), xin)
-        order = speeds.argsort()
-        z_sorted = z.detach()[order]
-        speeds_sorted = speeds[order]
-        keep = speeds_sorted < self.speed_tol
-        cand = z_sorted[keep].cpu().numpy()
-        cand_speed = speeds_sorted[keep].cpu().numpy()
-
-        # Fallback: if nothing passes the filter, keep the best candidate
-        if len(cand) == 0:
-            best_idx = speeds.argmin()
-            cand = z.detach()[best_idx:best_idx+1].cpu().numpy()
-            cand_speed = speeds[best_idx:best_idx+1].cpu().numpy()
-
-        # Deduplicate and compute eigenvalues/stability (using the model's jacobian contract)
-        fps = FixedPointSet()
-        for c, sp in zip(cand, cand_speed):
-            if any(np.linalg.norm(c - p.z) < self.dedup_tol for p in fps.points):
-                continue
-            J = model.jacobian(torch.as_tensor(c, dtype=torch.float32, device=device),
-                               inputs=(xin if xin is not None else None)).cpu().numpy()
-            eig = np.linalg.eigvals(J)
-            fps.points.append(FixedPoint(
-                z=c, speed=float(sp), eigenvalues=eig,
-                is_stable=bool(np.max(np.abs(eig)) < 1.0)))
-
-        if was_training:
-            model.train()
-        return fps
+            steps += 1
+        metadata.setdefault('termination', 'iteration budget exhausted')
+        return _finish(model, z, self._speed(model, z, xin).cpu().numpy(), initial,
+                       self, xin, metadata, steps)
 
 
-# =========================================================================
-# numeric backend from (Golub & Sussillo 2018 FixedPointFinder)
-# =========================================================================
 class GolubFixedPointFinder:
-    """PyTorch reimplementation of the TensorFlow `fixed-point-finder` algorithm.
+    """Golub-inspired gradient search with per-candidate decreasing rates.
 
-    This backend is useful when the Adam-based `NumericFixedPointFinder` fails to
-    spread candidates along a ring attractor (a common problem in the multitask
-    project). It uses adaptive-learning-rate gradient descent on
-    ``q = 0.5 * ||F(z) - z||^2``, trajectory-based initialization with Gaussian
-    noise, and per-candidate learning-rate adaptation, matching the behaviour of
-    the original Golub & Sussillo (2018) package used in
-    ``reference_project/multitask/flexible_multitask``.
-
-    Key differences from `NumericFixedPointFinder`:
-      * Adaptive LR (not Adam): ``lr_0 = initial_rate``, multiplied by
-        ``decrease_factor`` whenever the objective increases.
-      * Objective includes the 0.5 factor: ``q = 0.5 * ||F(z)-z||^2``.
-      * Convergence is checked against ``tol_q`` (default ``1e-9``), not a
-        speed tolerance.
-      * If ``init_states`` are provided, the finder samples ``n_candidates``
-        states from them and adds Gaussian noise with ``noise_scale``,
-        mirroring ``FixedPointFinder.sample_states``.
+    This is not a full port of the reference adaptive optimizer. Minimize
+    q=0.5*||F(z)-z||**2, reject uphill updates and multiply their rates by
+    decrease_factor. Supplied trajectories are resampled and perturbed in
+    every complete-state coordinate. Preserve the model's numeric precision.
     """
+    def __init__(self, n_candidates=1000, n_iters=5000, initial_rate=1.0,
+                 decrease_factor=.95, tol_q=1e-9, noise_scale=.05,
+                 dedup_tol=1e-2, seed=None, stability_tol=1e-6, state_scale=None):
+        _integer('n_candidates', n_candidates)
+        _integer('n_iters', n_iters, zero=True)
+        for name, value in [('initial_rate', initial_rate), ('tol_q', tol_q), ('dedup_tol', dedup_tol)]:
+            _positive(name, value)
+        _positive('noise_scale', noise_scale, zero=True)
+        if not 0 < decrease_factor < 1:
+            raise ValueError('decrease_factor must be in (0, 1)')
+        spectral_stability(None, stability_tol)
+        self.n_candidates, self.n_iters = n_candidates, n_iters
+        self.initial_rate, self.decrease_factor = initial_rate, decrease_factor
+        self.tol_q, self.noise_scale, self.dedup_tol = tol_q, noise_scale, dedup_tol
+        self.seed, self.stability_tol, self.state_scale = seed, stability_tol, state_scale
 
-    def __init__(self, n_candidates: int = 1000, n_iters: int = 5000,
-                 initial_rate: float = 1.0, decrease_factor: float = 0.95,
-                 tol_q: float = 1e-9, noise_scale: float = 0.05,
-                 dedup_tol: float = 1e-2, seed: int | None = None):
-        self.n_candidates = n_candidates
-        self.n_iters = n_iters
-        self.initial_rate = initial_rate
-        self.decrease_factor = decrease_factor
-        self.tol_q = tol_q
-        self.noise_scale = noise_scale
-        self.dedup_tol = dedup_tol
-        self.seed = seed
-
-    def _prepare_init_states(self, init_states: np.ndarray | torch.Tensor | None,
-                             M: int) -> torch.Tensor:
-        """Sample n_candidates initial states and add noise, or draw random ones."""
+    def _prepare_init_states(self, init_states, M):
         rng = np.random.RandomState(self.seed)
         if init_states is None:
-            z0 = rng.rand(self.n_candidates, M) * self.noise_scale
-            return torch.from_numpy(z0.astype(np.float32))
+            return torch.from_numpy(rng.rand(self.n_candidates, M) * self.noise_scale)
+        states = torch.as_tensor(init_states).detach().cpu().numpy().reshape(-1, M)
+        idx = rng.choice(len(states), self.n_candidates, replace=self.n_candidates > len(states))
+        return torch.from_numpy(states[idx] + rng.randn(self.n_candidates, M) * self.noise_scale)
 
-        if isinstance(init_states, torch.Tensor):
-            init_states = init_states.cpu().numpy()
-        init_states = np.asarray(init_states)
-        if init_states.ndim == 3:
-            init_states = init_states.reshape(-1, init_states.shape[-1])
-        if len(init_states) == 0:
-            z0 = rng.rand(self.n_candidates, M) * self.noise_scale
-            return torch.from_numpy(z0.astype(np.float32))
-
-        n = min(self.n_candidates, len(init_states))
-        if self.n_candidates > len(init_states):
-            idx = rng.choice(len(init_states), size=self.n_candidates, replace=True)
-        else:
-            idx = rng.choice(len(init_states), size=self.n_candidates, replace=False)
-        z0 = init_states[idx] + rng.randn(self.n_candidates, M) * self.noise_scale
-        return torch.from_numpy(np.maximum(z0, 0.0).astype(np.float32))
-
-    def find(self, model: NeuralDynamicsModel, *,
-             task_input: torch.Tensor | None = None,
-             init_states: np.ndarray | torch.Tensor | None = None) -> FixedPointSet:
-        """Search for fixed points using the original FixedPointFinder algorithm."""
-        was_training = model.training
-        model.eval()
+    @deterministic_analysis
+    def find(self, model, *, task_input=None, init_states=None):
+        p = next(model.parameters())
+        xin = _input(model, task_input)
+        _scale(self.state_scale, model.state_dim)
+        if init_states is not None:
+            init_states = _states(model, init_states)
+        z = self._prepare_init_states(init_states, model.state_dim).to(device=p.device, dtype=p.dtype)
+        if init_states is None:
+            width = model.config.latent_dim
+            z[:, width:] = model.init_state(self.n_candidates, p.device).detach()[:, width:]
+        initial = z.clone()
+        metadata = _metadata(self, model, xin, 'uniform activity; auxiliary init_state' if init_states is None
+                             else 'resampled supplied states plus Gaussian noise', initial)
         for p in model.parameters():
             p.requires_grad_(False)
-
-        M = model.config.latent_dim
-        device = next(model.parameters()).device
-
-        z0 = self._prepare_init_states(init_states, M).to(device)
-        z = z0.detach().requires_grad_(True)
-
-        if task_input is not None:
-            xin = task_input.to(device).unsqueeze(0).expand(z.shape[0], -1)
-        else:
-            xin = None
-
-        lr = torch.full((z.shape[0],), self.initial_rate, device=device)
-
+        z.requires_grad_(True)
+        rates = torch.full((len(z),), self.initial_rate, device=z.device, dtype=z.dtype)
+        steps = 0
         for _ in range(self.n_iters):
-            z.requires_grad_(True)
-            f = model.recurrence(xin, z)
-            diff = f - z
-            q = 0.5 * (diff ** 2).sum(dim=-1)
-
-            if q.max().item() < self.tol_q:
+            q = .5 * (model.recurrence(xin, z) - z).square().sum(-1)
+            if not torch.isfinite(q).all():
+                metadata['termination'] = 'nonfinite objective'
                 break
-
-            grad = torch.autograd.grad(q.sum(), z, create_graph=False)[0]
-
+            if (q < self.tol_q).all():
+                metadata['termination'] = 'all candidates passed residual criterion'
+                break
+            grad = torch.autograd.grad(q.sum(), z)[0]
             with torch.no_grad():
-                z_new = z - lr.unsqueeze(-1) * grad
-                f_new = model.recurrence(xin, z_new)
-                q_new = 0.5 * ((f_new - z_new) ** 2).sum(dim=-1)
-
-                increased = q_new > q
-                if increased.any():
-                    lr[increased] *= self.decrease_factor
-                    z_new[increased] = z[increased]
-
-                z.copy_(z_new)
-
+                new = z - rates[:, None] * grad
+                q_new = .5 * (model.recurrence(xin, new) - new).square().sum(-1)
+                rejected = (q_new > q) | ~torch.isfinite(q_new)
+                rates[rejected] *= self.decrease_factor
+                new[rejected] = z[rejected]
+                z.copy_(new)
+            steps += 1
+        metadata.setdefault('termination', 'iteration budget exhausted')
+        metadata['final_rate_range'] = [float(rates.min()), float(rates.max())]
         with torch.no_grad():
-            f = model.recurrence(xin, z)
-            speeds = (f - z).norm(dim=-1)
-            q_final = 0.5 * ((f - z) ** 2).sum(dim=-1)
-
-        mask = q_final < self.tol_q
-        if not mask.any():
-            best = q_final.argmin()
-            mask[best] = True
-
-        cand = z[mask].detach().cpu().numpy()
-        cand_speed = speeds[mask].detach().cpu().numpy()
-
-        fps = FixedPointSet()
-        for c, sp in zip(cand, cand_speed):
-            if any(np.linalg.norm(c - p.z) < self.dedup_tol for p in fps.points):
-                continue
-            J = model.jacobian(torch.as_tensor(c, dtype=torch.float32, device=device),
-                               inputs=(xin[0:1] if xin is not None else None)).cpu().numpy()
-            eig = np.linalg.eigvals(J)
-            fps.points.append(FixedPoint(
-                z=c, speed=float(sp), eigenvalues=eig,
-                is_stable=bool(np.max(np.abs(eig)) < 1.0)))
-
-        if was_training:
-            model.train()
-        return fps
+            speeds = (model.recurrence(xin, z) - z).norm(dim=-1).cpu().numpy()
+        return _finish(model, z, speeds, initial, self, xin, metadata, steps)
 
 
-# =========================================================================
-# Analytic backend (PLRNN: scy_fi / main, exact FP + k-cycle solver)
-# =========================================================================
 def _construct_relu_matrix(number_quadrant: int, dim: int) -> np.ndarray:
     bits = format(number_quadrant, f"0{dim}b")[::-1]
     return np.diag(np.array([bool(int(b)) for b in bits]))
 
 
-def _relu_matrix_list(dim: int, order: int) -> np.ndarray:
+def _relu_matrix_list(dim: int, order: int, rng=np.random) -> np.ndarray:
     out = np.empty((dim, dim, order))
     for i in range(order):
-        n = int(np.floor(np.random.rand() * (2 ** dim)))
+        n = int(np.floor(rng.rand() * (2 ** dim)))
         out[:, :, i] = _construct_relu_matrix(n, dim)
     return out
 
@@ -301,8 +339,7 @@ def _get_factors(A, W1, W2, D_list, order):
 def _cycle_point_candidate(A, W1, W2, h1, h2, D_list, order):
     z_f, h1_f, h2_f = _get_factors(A, W1, W2, D_list, order)
     try:
-        inv = np.linalg.inv(np.eye(A.shape[0]) - z_f)
-        return inv.dot(h1_f.dot(h1) + h2_f.dot(h2))
+        return np.linalg.solve(np.eye(A.shape[0]) - z_f, h1_f.dot(h1) + h2_f.dot(h2))
     except np.linalg.LinAlgError:
         return None
 
@@ -329,286 +366,243 @@ def _get_eigvals(A, W1, W2, D_list, order):
     return np.linalg.eigvals(e)
 
 
+def _orbits_equal(first, second, tolerance, scale):
+    """Compare whole orbits modulo cyclic rotation, never time reversal."""
+    a, b = np.asarray(first), np.asarray(second)
+    return a.shape == b.shape and any(
+        np.max(np.linalg.norm((a - np.roll(b, shift, axis=0)) / scale, axis=1)) < tolerance
+        for shift in range(len(a)))
+
+
+def _minimal_period(orbit, tolerance, scale):
+    for period in range(1, len(orbit)):
+        if len(orbit) % period == 0 and np.max(np.linalg.norm(
+                (orbit - np.roll(orbit, period, axis=0)) / scale, axis=1)) < tolerance:
+            return period
+    return len(orbit)
+
+
 def _scy_fi(A, W1, W2, h1, h2, order, found_lower, outer_it=300, inner_it=100,
-            dedup_tol=1e-2):
-    """Heuristic exact solver for order-k cycles (ported from CNS2023 scy_fi). A is an (M,M) diagonal matrix.
+            dedup_tol=1e-2, *, state_scale=None, rng=None, stats=None):
+    """Bounded SCYFI region search, not exhaustive region enumeration.
 
-    NOTE: dedup deviates from the original CNS2023 code on purpose. The original
-    rejects a candidate when ANY single coordinate of the rounded candidate matches
-    ANY coordinate of an already-found cycle (element-wise ``np.isin``). In
-    high-dimensional latent spaces (e.g. dendPLRNN/ALRNN effective shallow forms)
-    this falsely rejects genuinely distinct fixed points, so a run returns only
-    one FP. Here dedup compares full state vectors with ``np.allclose``.
+    Each restart refines at most inner_it region sequences. Repeated lower
+    periods are rejected even when the lower-order search missed them.
     """
-    hidden_dim = h2.shape[0]
-    latent_dim = h1.shape[0]
+    rng = np.random if rng is None else rng
+    stats = {} if stats is None else stats
+    stats.update(attempted=0, singular=0, inconsistent=0, lower_period=0, duplicates=0)
+    scale = _scale(state_scale, len(h1))
     cycles, eigvals = [], []
-
-    def _is_duplicate(z):
-        # full-vector comparison against every point of every found cycle
-        if any(np.allclose(z, pt, atol=dedup_tol, rtol=0)
-               for cyc in cycles for pt in cyc):
-            return True
-        # skip cycles already found at lower orders
-        return any(np.allclose(z, pt, atol=dedup_tol, rtol=0)
-                   for lower in found_lower for cyc in lower for pt in cyc)
-
-    i = -1
-    while i < outer_it:
-        i += 1
-        D = _relu_matrix_list(hidden_dim, order)
-        diff = 1
-        c = 0
-        while c < inner_it:
-            c += 1
+    for _ in range(outer_it):
+        D = _relu_matrix_list(len(h2), order, rng)
+        for _ in range(inner_it):
+            stats['attempted'] += 1
             zc = _cycle_point_candidate(A, W1, W2, h1, h2, D, order)
-            if zc is None:
-                D = _relu_matrix_list(hidden_dim, order)
+            if zc is None or not np.isfinite(zc).all():
+                stats['singular'] += 1
+                break
+            orbit = np.asarray(_latent_series(order, A, W1, W2, h1, h2, len(h1), zc))
+            actual_D = np.stack([np.diag(W2 @ z + h2 > 0) for z in orbit], axis=-1)
+            if not np.array_equal(D, actual_D):
+                stats['inconsistent'] += 1
+                D = actual_D
                 continue
-            traj = _latent_series(order, A, W1, W2, h1, h2, latent_dim, z0=zc)
-            traj_D = np.empty((hidden_dim, hidden_dim, order))
-            for j in range(order):
-                traj_D[:, :, j] = np.diag((W2.dot(traj[j]) + h2) > 0)
-            for j in range(order):
-                diff = np.sum(np.abs(traj_D[:, :, j] - D[:, :, j]))
-                if diff != 0:
-                    break
-            if diff == 0 and not _is_duplicate(traj[0]):
-                e = _get_eigvals(A, W1, W2, D, order)
-                cycles.append(traj)
-                eigvals.append(e)
-                i = 0
-                c = 0
-            D = _relu_matrix_list(hidden_dim, order) if np.array_equal(D, traj_D) else traj_D
+            if _minimal_period(orbit, dedup_tol, scale) < order:
+                stats['lower_period'] += 1
+            elif any(_orbits_equal(orbit, old, dedup_tol, scale) for old in cycles):
+                stats['duplicates'] += 1
+            else:
+                cycles.append(orbit)
+                eigvals.append(_get_eigvals(A, W1, W2, D, order))
+            break
     return cycles, eigvals
 
 
 class AnalyticPLRNNFixedPointFinder:
-    """PLRNN analytic backend: enumerate cycles of order 1..max_order exactly, with eigenvalues."""
+    """Solve consistent piecewise-affine regions; verify in the actual map.
 
-    def __init__(self, max_order: int = 1, outer_it: int = 300, inner_it: int = 100,
-                 dedup_tol: float = 1e-2):
-        self.max_order = max_order
-        self.outer_it = outer_it
-        self.inner_it = inner_it
-        self.dedup_tol = dedup_tol
+    ``speed`` is max_j ||F(z_j)-z_(j+1 mod k)||. The returned eigenvalues
+    belong to the k-step monodromy, not a continuous-time generator.
+    """
+    def __init__(self, max_order=1, outer_it=300, inner_it=100, dedup_tol=1e-2,
+                 speed_tol=1e-5, stability_tol=1e-6, state_scale=None,
+                 kink_tol=1e-8, seed=None):
+        for name, value in [('max_order', max_order), ('outer_it', outer_it), ('inner_it', inner_it)]:
+            _integer(name, value)
+        _positive('dedup_tol', dedup_tol)
+        _positive('speed_tol', speed_tol)
+        _positive('kink_tol', kink_tol, zero=True)
+        spectral_stability(None, stability_tol)
+        self.max_order, self.outer_it, self.inner_it = max_order, outer_it, inner_it
+        self.dedup_tol, self.speed_tol = dedup_tol, speed_tol
+        self.stability_tol, self.state_scale = stability_tol, state_scale
+        self.kink_tol, self.seed = kink_tol, seed
 
-    def find(self, model: NeuralDynamicsModel, *,
-             task_input: torch.Tensor | None = None) -> FixedPointSet:
-        """Find fixed points analytically (SCYFI). task_input: optional constant
-        input (input_dim,) folded into the effective bias before solving."""
+    @deterministic_analysis
+    def find(self, model, *, task_input=None):
         if not model.supports_analytic_fixed_points:
-            raise RuntimeError(f"{type(model).__name__} does not support analytic fixed points; use a numeric backend.")
-        p = model.analytic_parameters(task_input=task_input)  # Allow folding a constant input into the bias
-        required = {"A", "W1", "W2", "h1", "h2"}
-        if not required.issubset(p):
-            raise RuntimeError(
-                f"analytic_parameters() must return {required}, but got {set(p.keys())}"
-            )
-        A = p["A"].cpu().numpy()               # (M,M), diagonal or full matrix
-        W1 = p["W1"].cpu().numpy()
-        W2 = p["W2"].cpu().numpy()
-        h1 = p["h1"].cpu().numpy()
-        h2 = p["h2"].cpu().numpy()
-
-        fps = FixedPointSet()
+            raise RuntimeError(f'{type(model).__name__} does not support analytic fixed points')
+        # Autonomous models historically ignore task_input.
+        effective_input = None if getattr(model.config, 'autonomous', False) else task_input
+        xin = _input(model, effective_input)
+        params = model.analytic_parameters(task_input=None if xin is None else xin[0])
+        required = {'A', 'W1', 'W2', 'h1', 'h2'}
+        if not required.issubset(params):
+            raise RuntimeError(f'analytic_parameters must contain {required}')
+        A, W1, W2, h1, h2 = [params[k].detach().cpu().numpy().astype(np.float64)
+                              for k in ('A', 'W1', 'W2', 'h1', 'h2')]
+        if A.ndim == 1:
+            A = np.diag(A)
+        p = next(model.parameters())
+        metadata = _metadata(self, model, xin, 'random activation-region sequences')
+        metadata.update(solver_dtype='float64', residual_threshold=self.speed_tol,
+                        residual='max_j norm(F(z_j)-z_(j+1 mod k)), model dtype', orders=[])
+        fps = FixedPointSet(metadata=metadata)
+        rng = np.random if self.seed is None else np.random.RandomState(self.seed)
         found_lower = []
         for order in range(1, self.max_order + 1):
-            cycles, eigvals = _scy_fi(A, W1, W2, h1, h2, order, found_lower,
-                                      self.outer_it, self.inner_it,
-                                      dedup_tol=self.dedup_tol)
+            stats = dict(order=order)
+            cycles, _ = _scy_fi(A, W1, W2, h1, h2, order, found_lower,
+                                self.outer_it, self.inner_it, self.dedup_tol,
+                                state_scale=self.state_scale, rng=rng, stats=stats)
             found_lower.append(cycles)
-            for traj, e in zip(cycles, eigvals):
-                traj = np.asarray(traj)
-                fps.points.append(FixedPoint(
-                    z=traj[0], speed=0.0, eigenvalues=e,
-                    is_stable=bool(np.max(np.abs(e)) < 1.0),
-                    order=order, cycle=traj if order > 1 else None))
+            metadata['orders'].append(stats)
+            for orbit in cycles:
+                z = torch.as_tensor(orbit, dtype=p.dtype, device=p.device)
+                with torch.no_grad():
+                    residuals = (model.recurrence(xin, z) - z.roll(-1, 0)).norm(dim=-1)
+                speed = float(residuals.max())
+                converged = np.isfinite(speed) and speed < self.speed_tol
+                diagnostic = CandidateDiagnostic(z=z[0].cpu().numpy(), speed=speed,
+                    q=.5 * speed**2, converged=bool(converged), order=order,
+                    status='unconverged', message='region-consistent candidate; residual checked in model dtype')
+                fps.diagnostics.append(diagnostic)
+                if not converged:
+                    continue
+                product = np.eye(model.state_dim)
+                for state in z:
+                    product = model.jacobian(state, inputs=xin).detach().cpu().numpy() @ product
+                eig = np.linalg.eigvals(product)
+                point = _point(z[0].cpu().numpy(), speed, eig, self.stability_tol,
+                               order=order, cycle=z.cpu().numpy() if order > 1 else None)
+                if np.any(np.abs(orbit @ W2.T + h2) <= self.kink_tol):
+                    point.stability, point.is_stable = 'nondifferentiable', None
+                fps.points.append(point)
+                diagnostic.accepted, diagnostic.status = True, 'accepted'
+        metadata.update(n_converged=sum(d.converged for d in fps.diagnostics), n_accepted=len(fps))
         return fps
 
 
-# =========================================================================
-# scipy backend (ported from trainRNNbrain DynamicSystemAnalyzer)
-# =========================================================================
 class ScipyFixedPointFinder:
-    """scipy backend: exact root-finding with fsolve + approximate minimization with Powell.
+    """MINPACK hybrid root search or Powell minimization of q=0.5*||F-z||².
 
-    WARNING: This backend is less stable and is not recommended.
-    fsolve's exact mode (mode='exact') often converges to points that are not fixed points, because the
-    numerical error introduced by Euler discretization can make an exact RHS(z)=0 solution nonexistent.
-    The approx mode (Powell) is more robust but still less reliable than NumericFixedPointFinder
-    (PyTorch Adam gradient descent).
-
-    Recommendation: prefer NumericFixedPointFinder (backend='numeric'),
-    and only try mode='approx' of this backend when the numeric backend fails to find fixed points.
-
-    Differences from NumericFixedPointFinder:
-    - fsolve uses the Levenberg-Marquardt algorithm to solve RHS(z)=0 directly
-    - Powell minimizes ‖RHS‖² as a fallback (mode='approx')
-    - The model's jacobian can be supplied to fsolve as an analytic Jacobian
+    ``speed_tol`` is independent of solver stopping tolerances. If omitted,
+    sqrt(fun_tol) preserves the historical residual threshold. ``patience``
+    and ``eig_cutoff`` are retained as inactive legacy arguments.
     """
+    def __init__(self, n_candidates=100, mode='exact', fun_tol=1e-12,
+                 patience=100, stop_length=100, sigma_init_guess=.01,
+                 eig_cutoff=1e-10, diff_cutoff=1e-7, seed=42, *,
+                 speed_tol=None, xtol=None, maxfev=None, stability_tol=1e-6, state_scale=None):
+        if mode not in ('exact', 'approx'):
+            raise ValueError('mode must be exact or approx')
+        _integer('n_candidates', n_candidates)
+        _integer('stop_length', stop_length)
+        for name, value in [('fun_tol', fun_tol), ('diff_cutoff', diff_cutoff)]:
+            _positive(name, value)
+        _positive('sigma_init_guess', sigma_init_guess, zero=True)
+        speed_tol = np.sqrt(fun_tol) if speed_tol is None else speed_tol
+        xtol = fun_tol if xtol is None else xtol
+        maxfev = stop_length if maxfev is None else maxfev
+        _positive('speed_tol', speed_tol)
+        _positive('xtol', xtol)
+        _integer('maxfev', maxfev)
+        spectral_stability(None, stability_tol)
+        self.n_candidates, self.mode, self.fun_tol = n_candidates, mode, fun_tol
+        self.patience, self.stop_length, self.sigma_init_guess = patience, stop_length, sigma_init_guess
+        self.eig_cutoff, self.diff_cutoff, self.seed = eig_cutoff, diff_cutoff, seed
+        self.dedup_tol, self.speed_tol, self.xtol, self.maxfev = diff_cutoff, speed_tol, xtol, maxfev
+        self.stability_tol, self.state_scale = stability_tol, state_scale
 
-    def __init__(self, n_candidates: int = 100, mode: str = "exact",
-                 fun_tol: float = 1e-12, patience: int = 100,
-                 stop_length: int = 100, sigma_init_guess: float = 0.01,
-                 eig_cutoff: float = 1e-10, diff_cutoff: float = 1e-7,
-                 seed: int = 42):
-        """
-        Args:
-            n_candidates: number of candidate initial points
-            mode: "exact" (fsolve) or "approx" (Powell minimization)
-            fun_tol: function-value tolerance (points below this are treated as fixed points)
-            patience: maximum number of iterations without improvement
-            stop_length: hard upper iteration limit for stopping the search
-            sigma_init_guess: standard deviation of Gaussian noise for initial guesses
-            eig_cutoff: threshold for treating an eigenvalue as zero
-            diff_cutoff: L2 distance threshold for treating two points as duplicates
-            seed: random seed
-        """
-        self.n_candidates = n_candidates
-        self.mode = mode
-        self.fun_tol = fun_tol
-        self.patience = patience
-        self.stop_length = stop_length
-        self.sigma_init_guess = sigma_init_guess
-        self.eig_cutoff = eig_cutoff
-        self.diff_cutoff = diff_cutoff
-        self.seed = seed
-
-    def _rhs_numpy(self, model, z_np, task_input_np):
-        """Compute RHS(z) = F(z) - z, returning a numpy array."""
-        device = next(model.parameters()).device
-        z_t = torch.as_tensor(z_np, dtype=torch.float32, device=device).unsqueeze(0)
-        xin = None
-        if task_input_np is not None:
-            xin = torch.as_tensor(task_input_np, dtype=torch.float32, device=device).unsqueeze(0)
+    def _rhs_numpy(self, z_np, model, task_input_np):
+        p = next(model.parameters())
+        z = torch.as_tensor(z_np, dtype=p.dtype, device=p.device)
+        xin = _input(model, task_input_np)
         with torch.no_grad():
-            f = model.recurrence(xin, z_t).squeeze(0)
-        return (f - z_t.squeeze(0)).cpu().numpy()
+            return (model.recurrence(xin, z[None])[0] - z).cpu().numpy().astype(float)
 
-    def _jacobian_numpy(self, model, z_np, task_input_np):
-        """Compute the Jacobian ∂RHS/∂z, returning a numpy array."""
-        device = next(model.parameters()).device
-        z_t = torch.as_tensor(z_np, dtype=torch.float32, device=device)
-        xin = None
-        if task_input_np is not None:
-            xin = torch.as_tensor(task_input_np, dtype=torch.float32, device=device).unsqueeze(0)
-        J = model.jacobian(z_t, inputs=xin).cpu().numpy()
-        return J - np.eye(J.shape[0])  # ∂(F(z)-z)/∂z = J_F - I
+    def _jacobian_numpy(self, z_np, model, task_input_np):
+        p = next(model.parameters())
+        z = torch.as_tensor(z_np, dtype=p.dtype, device=p.device)
+        J = model.jacobian(z, inputs=_input(model, task_input_np)).detach().cpu().numpy()
+        return J - np.eye(model.state_dim)
 
-    def find(self, model: NeuralDynamicsModel, *, task_input: torch.Tensor | None = None,
-             init_states: torch.Tensor | None = None) -> FixedPointSet:
-        """Search for fixed points. task_input: (input_dim,) constant input condition."""
+    @deterministic_analysis
+    def find(self, model, *, task_input=None, init_states=None):
         from scipy.optimize import fsolve, minimize
-
-        was_training = model.training
-        model.eval()
-
-        M = model.config.latent_dim
-        device = next(model.parameters()).device
-        rng = np.random.RandomState(self.seed)
-
-        # Prepare task_input in numpy format
-        ti_np = task_input.cpu().numpy() if task_input is not None else None
-
-        # Generate initial guesses
-        if init_states is not None:
-            candidates = init_states.cpu().numpy()
+        p = next(model.parameters())
+        xin = _input(model, task_input)
+        ti = None if xin is None else xin[0].detach().cpu().numpy()
+        _scale(self.state_scale, model.state_dim)
+        if init_states is None:
+            initial = model.init_state(self.n_candidates, p.device).detach().clone().to(p.dtype)
+            activity = np.random.RandomState(self.seed).randn(self.n_candidates, model.config.latent_dim)
+            initial[:, :model.config.latent_dim] = torch.as_tensor(
+                activity * self.sigma_init_guess, device=p.device, dtype=p.dtype)
         else:
-            candidates = rng.randn(self.n_candidates, M) * self.sigma_init_guess
-
-        found_points: list[np.ndarray] = []
-        found_speeds: list[float] = []
-        found_eigs: list[np.ndarray] = []
-
-        for z0 in candidates:
-            if self.mode == "exact":
-                try:
-                    z_sol, info, ier, msg = fsolve(
-                        self._rhs_numpy, z0,
-                        args=(model, ti_np),
-                        fprime=self._jacobian_numpy,
-                        full_output=True, xtol=self.fun_tol
-                    )
-                except Exception:
-                    continue
-                speed = np.linalg.norm(self._rhs_numpy(model, z_sol, ti_np))
-                if speed > np.sqrt(self.fun_tol):
-                    continue
-            else:  # approx
-                def obj(z):
-                    """Objective: ½‖F(z) − z‖² (so speed = sqrt(2·fun))."""
-                    r = self._rhs_numpy(model, z, ti_np)
-                    return 0.5 * np.dot(r, r)
-
-                try:
-                    res = minimize(obj, z0, method='Powell',
-                                   options={'maxiter': self.stop_length,
-                                            'ftol': self.fun_tol})
-                except Exception:
-                    continue
-                z_sol = res.x
-                speed = np.sqrt(2 * res.fun)
-                if speed > np.sqrt(self.fun_tol):
-                    continue
-
-            # Remove duplicates
-            is_dup = False
-            for fp in found_points:
-                if np.linalg.norm(z_sol - fp) < self.diff_cutoff:
-                    is_dup = True
-                    break
-            if is_dup:
-                continue
-
-            # Compute Jacobian eigenvalues and stability
+            initial = _states(model, init_states)
+        metadata = _metadata(self, model, xin, 'Gaussian activity; auxiliary init_state' if init_states is None
+                             else 'all supplied complete states', initial)
+        metadata.update(solver_dtype='float64', inactive_legacy_parameters=['patience', 'eig_cutoff'])
+        solutions, speeds, records = [], [], []
+        for z0 in initial.cpu().numpy():
+            record = {}
             try:
-                J = self._jacobian_numpy(model, z_sol, ti_np) + np.eye(M)
-                eig = np.linalg.eigvals(J)
-            except Exception:
-                eig = None
+                if self.mode == 'exact':
+                    sol, info, ier, msg = fsolve(self._rhs_numpy, z0, args=(model, ti),
+                        fprime=self._jacobian_numpy, full_output=True, xtol=self.xtol, maxfev=self.maxfev)
+                    record.update(success=ier == 1, nfev=info['nfev'], message=str(msg))
+                else:
+                    def objective(z):
+                        residual = self._rhs_numpy(z, model, ti)
+                        return .5 * residual @ residual
+                    result = minimize(objective, z0, method='Powell', options=dict(
+                        maxiter=self.stop_length, maxfev=self.maxfev, ftol=self.fun_tol, xtol=self.xtol))
+                    sol = result.x
+                    record.update(success=bool(result.success), nfev=result.nfev,
+                                  iterations=result.nit, message=str(result.message))
+                # Store and verify the state actually representable by the model.
+                sol = torch.as_tensor(sol, device=p.device, dtype=p.dtype).cpu().numpy()
+                speed = np.linalg.norm(self._rhs_numpy(sol, model, ti))
+            except Exception as exc:
+                sol, speed = z0.copy(), float('inf')
+                record.update(error=True, success=False, message=f'{type(exc).__name__}: {exc}')
+            solutions.append(sol)
+            speeds.append(speed)
+            records.append(record)
+        z = torch.as_tensor(np.stack(solutions), device=p.device, dtype=p.dtype)
+        return _finish(model, z, speeds, initial, self, xin, metadata, None, records)
 
-            found_points.append(z_sol)
-            found_speeds.append(speed)
-            found_eigs.append(eig)
 
-        # Build FixedPointSet
-        fps = FixedPointSet()
-        for z, sp, eig in zip(found_points, found_speeds, found_eigs):
-            is_stable = None
-            if eig is not None:
-                is_stable = bool(np.max(np.abs(eig)) < 1.0)
-            fps.points.append(FixedPoint(
-                z=z, speed=sp, eigenvalues=eig, is_stable=is_stable))
+def find_fixed_points(model: NeuralDynamicsModel, *, backend='auto', task_input=None,
+                      init_states=None, max_order=1, **kwargs) -> FixedPointSet:
+    """Dispatch to analytic, numeric, golub or scipy; reject unknown options.
 
-        if was_training:
-            model.train()
-        return fps
-
-
-# =========================================================================
-# Unified entry point
-# =========================================================================
-def find_fixed_points(model: NeuralDynamicsModel, *, backend: str = "auto",
-                      task_input: torch.Tensor | None = None,
-                      max_order: int = 1, **kwargs) -> FixedPointSet:
-    """Automatic backend selection: analytic preferred (if the model supports it), otherwise numeric.
-
-    backend: "auto" / "numeric" / "analytic" / "scipy".
-    task_input: constant external input condition. For the analytic backend it is folded into the effective bias
-                (e.g., h1 + C*s) before solving; for the numeric/scipy backends it is held fixed while searching
-                for fixed points.
-    max_order: maximum cycle order scanned by the analytic backend.
-
-    Backend comparison:
-    - numeric:  PyTorch Adam gradient descent on ‖F(z)−z‖² (general, GPU-friendly, recommended)
-    - analytic: exact PLRNN solver (PLRNN models only; supports constant task_input)
-    - scipy:    scipy fsolve / Powell (less stable, not recommended);
+    Auto selects analytic only when the model declares that capability.
+    init_states are complete states or trajectories. Only analytic supports
+    max_order > 1, and it uses activation regions rather than init_states.
     """
-    if backend == "analytic" or (backend == "auto" and model.supports_analytic_fixed_points):
-        return AnalyticPLRNNFixedPointFinder(max_order=max_order, **kwargs).find(
-            model, task_input=task_input
-        )
-    if backend == "scipy":
-        return ScipyFixedPointFinder(**kwargs).find(model, task_input=task_input)
-    return NumericFixedPointFinder(**kwargs).find(model, task_input=task_input)
+    if backend not in ('auto', 'analytic', 'numeric', 'golub', 'scipy'):
+        raise ValueError(f'Unknown fixed-point backend: {backend}')
+    _integer('max_order', max_order)
+    if backend == 'auto':
+        backend = 'analytic' if model.supports_analytic_fixed_points else 'numeric'
+    if backend == 'analytic':
+        if init_states is not None:
+            raise ValueError('analytic uses activation-region seeds, not init_states')
+        return AnalyticPLRNNFixedPointFinder(max_order=max_order, **kwargs).find(model, task_input=task_input)
+    if max_order != 1:
+        raise ValueError('max_order > 1 is only supported by analytic')
+    cls = {'numeric': NumericFixedPointFinder, 'golub': GolubFixedPointFinder, 'scipy': ScipyFixedPointFinder}[backend]
+    return cls(**kwargs).find(model, task_input=task_input, init_states=init_states)

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 import torch
 
 from neuralrnn import AutoConfig, AutoModel
@@ -13,6 +12,20 @@ from neuralrnn.analysis.manifolds import (
     _region_id,
 )
 from neuralrnn.analysis.fixed_points import find_fixed_points
+
+
+def _set_known_saddle(model, *, task_driven=False):
+    """Configure a deterministic PLRNN with one unstable and two stable axes."""
+    with torch.no_grad():
+        model.A.copy_(torch.tensor([1.2, 0.5, 0.7]))
+        model.W1.zero_()
+        model.W2.zero_()
+        model.h1.zero_()
+        model.h2.fill_(-10.0)
+        if task_driven:
+            model.C.copy_(
+                torch.tensor([[0.1, 0.0], [0.0, 0.2], [0.1, -0.1]])
+            )
 
 
 def test_region_id_consistency():
@@ -48,9 +61,9 @@ def test_tracer_returns_segments():
     cfg = AutoConfig.for_model("shallow_plrnn", input_dim=0, latent_dim=3,
                                output_dim=3, hidden_dim=8, autonomous=True)
     model = AutoModel.from_config(cfg)
+    _set_known_saddle(model)
     fps = find_fixed_points(model, backend="analytic", max_order=1, outer_it=10, inner_it=5)
-    if len(fps) == 0:
-        pytest.skip("No fixed points found for this random model")
+    assert len(fps) > 0
     fp = fps.points[0]
 
     trace = compute_manifold(
@@ -67,14 +80,14 @@ def test_tracer_task_input():
     cfg = AutoConfig.for_model("shallow_plrnn", input_dim=2, latent_dim=3,
                                output_dim=3, hidden_dim=8, autonomous=False)
     model = AutoModel.from_config(cfg)
+    _set_known_saddle(model, task_driven=True)
     task_input = torch.tensor([0.5, -0.2], dtype=torch.float32)
 
     fps = find_fixed_points(
         model, backend="analytic", task_input=task_input,
         max_order=1, outer_it=10, inner_it=5
     )
-    if len(fps) == 0:
-        pytest.skip("No fixed points found for this random model")
+    assert len(fps) > 0
     fp = fps.points[0]
 
     trace = compute_manifold(

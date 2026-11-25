@@ -57,8 +57,10 @@ Task list (20 tasks):
         dmcnogo : Delayed match-to-category, No-Go on category match.
 
 Notes:
-    - This module ports the trial-generation logic from
-      reference_project/multitask/multitask/task.py.
+    - This module reimplements the trial-generation protocol described by Yang
+      et al. (2019) for NeuralRNN.  The public reference implementation
+      (``reference_project/multitask/multitask/task.py``) was consulted for
+      task conventions, timing, and array layout.
     - Internally, trials are built with the original (time, batch, dim) layout;
       arrays are transposed to NeuralRNN's (batch, time, dim) layout at return.
     - Timing values are in ms and converted to time steps with dt=20 ms.

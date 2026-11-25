@@ -1,6 +1,10 @@
 """Nested cross-validation + config grid framework (Tiny RNN paradigm).
 
-Ported from behavior_cv_training_config_combination in 01-fitting-generated-data.ipynb:
+This module independently reimplements the nested-cross-validation protocol
+used in the Tiny RNN study. The public
+``behavior_cv_training_config_combination`` workflow in
+``01-fitting-generated-data.ipynb`` was consulted for the configuration-grid
+and validation conventions. In particular, it
 expand base_config × config_ranges into a set of named configs, and for each config perform
 outer × inner nested cross-validation with multiple random seeds, selecting the model with the
 best validation loss.

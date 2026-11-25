@@ -41,6 +41,9 @@ class ConstrainedRNNConfig(CTRNNConfig):
         rec_mask: Optional (M, M) mask applied to recurrent weights h2h.weight.
         in_mask:  Optional (input_dim, M) mask applied to input2h.weight.
         out_mask: Optional (M, output_dim) mask applied to readout_layer.weight.
+        ei_positive_func: Dale magnitude transform: ``"rectify"`` applies
+            ReLU to raw recurrent weights (default); ``"abs"`` uses absolute
+            values. Only active when ``dale=True``.
         nonlinearity_mode: See CTRNNConfig ("pre_activation" default, "post_blend", "rate").
         All CTRNNConfig arguments are inherited.
     """
@@ -64,9 +67,12 @@ class ConstrainedRNNConfig(CTRNNConfig):
         rec_mask: list | Any | None = None,
         in_mask: list | Any | None = None,
         out_mask: list | Any | None = None,
+        ei_positive_func: str = "rectify",
         nonlinearity_mode: str = "pre_activation",
         **kwargs,
     ) -> None:
+        if ei_positive_func not in ("rectify", "abs"):
+            raise ValueError("ei_positive_func must be 'rectify' or 'abs'")
         super().__init__(
             input_dim=input_dim,
             latent_dim=latent_dim,
@@ -81,11 +87,13 @@ class ConstrainedRNNConfig(CTRNNConfig):
             sigma_rec=sigma_rec,
             noise_alpha_scaling=noise_alpha_scaling,
             nonlinearity_mode=nonlinearity_mode,
+            ei_positive_func=ei_positive_func,
             **kwargs,
         )
         self.rec_mask = rec_mask
         self.in_mask = in_mask
         self.out_mask = out_mask
+        self.ei_positive_func = ei_positive_func
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize, converting mask arrays to JSON-safe nested lists."""
@@ -111,7 +119,10 @@ class SERNNConfig(ConstrainedRNNConfig):
         distance_power: Exponent applied to distances before weighting (default 1).
         se1_weight: Coefficient lambda for the distance-weighted L1 term.
         comms_factor: If > 0, include unbiased weighted communicability term
-            with this exponent. Set to 0 to use distance only.
+            with this exponent and differentiate through its matrix exponential.
+            Normalization uses source-column strengths in PyTorch weight layout,
+            corresponding to source-row strengths in the original Keras kernel.
+            Set to 0 to use distance only.
         distance_metric: Metric passed to scipy.spatial.distance.pdist.
         orthogonal_init: If True, initialize recurrent weights with orthogonal init.
     """
